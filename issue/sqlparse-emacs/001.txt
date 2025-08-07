@@ -1,0 +1,3074 @@
+INCLUDE SQLCA;
+
+#define SUCCESS 0 #define FAIL 1 #define TRUE 1 #define FALSE 0 #define MONTH 0 #define DAILY 1 #define DEBUG 1 #define NO_DEBUG 0 #define INTERFACE_TYPE "TBS_AR" #define AR_TYPE "AR" #define TRANS_CODE_21F "21F" char* env_pbs_user;
+
+char* env_pbs_pass;
+
+char* env_pbs_serv;
+
+char* env_gl_user;
+
+char* env_gl_pass;
+
+char* env_gl_serv;
+
+char* env_boss_user;
+
+char* env_boss_pass;
+
+char* env_boss_serv;
+
+#define PENDING 1 #define CREATED 2 #define NORECS 3 #define ERROR 4 int interfaceStatus;
+
+char pwrline_server_alias[20] = {"PWRLINE_SERVER"};
+
+#if 0 // eFMS interface discontinued char gl_server_alias[20] = {"GL_SERVER"};
+
+#endif FILE* ARFile;
+
+FILE* LOGFILE;
+
+FILE* rptFile;
+
+char arFileName[100];
+
+char logFileName[100];
+
+char rptFileName[100];
+
+// BDI_I_013,
+   PREFIX AR DATA FILE lines WITH GL Period // // Prefixing the DATA FILE lines WITH the invoice GL Period IS the DEFAULT // behavior. However,
+                                                                                                                             SOME discussions indicated that they may need TO // be able TO SWITCH back quickly. The PBI_AR_GL_PERIOD_LINE_PREFIX_DISABLE // environment VARIABLE makes that possible. IF PBI_AR_GL_PERIOD_LINE_PREFIX_DISABLE // IS
+SET TO TRUE (CASE - INSENSITIVE) IN the PBIenv.csh (via the Pipeline Library //
+                                                    OR NOT),
+                                    THEN the AR DATA FILE lines will NOT be prefixed WITH the GL Period. // Which restores that exact same FILE format AS previously sent TO eFMS / EBS. // // The presence
+OR absence OF PBI_AR_GL_PERIOD_LINE_PREFIX_DISABLE has absolutely NO // effect unless it IS textually 'TRUE' (CASE - INSENSITIVE). // int gl_period_prefix_disable = FALSE;
+
+char username[20];
+
+struct invoice { varchar invoice_no[25];
+
+varchar inv_rev_no[3];
+
+varchar customer_id[15];
+
+varchar csc_name[30];
+
+varchar customer_type_code[15];
+
+varchar srvc_to_dt[20];
+
+varchar invoice_dt[20];
+
+varchar last_pay_dt[20];
+
+varchar pay_due_dt[20];
+
+varchar customer_name[200];
+
+varchar revenue_type[15];
+
+varchar invoice_type[25];
+
+varchar trans_type[15];
+
+varchar glperiod[20];
+
+varchar account_id[50];
+
+varchar contract_no[50];
+
+struct product * product_list_head;
+
+struct product * product_list_tail;
+
+struct invoice* NEXT;
+
+};
+
+struct feeder_detail_record { varchar trans_type[15];
+
+varchar revenue_type[15];
+
+varchar invoice_type[15];
+
+varchar customer_id[15];
+
+varchar customer_name[200];
+
+varchar invoice_no[15];
+
+varchar srvc_to_dt[20];
+
+varchar invoice_dt[20];
+
+varchar last_pay_dt[20];
+
+varchar pay_due_dt[20];
+
+varchar amount[15];
+
+varchar product_type[200];
+
+varchar product_type_parent[200];
+
+varchar product_group[200];
+
+varchar line_description[240];
+
+varchar entity[3];
+
+varchar resp_org[5];
+
+varchar perf_org[5];
+
+varchar LOCATION[6];
+
+varchar nat_acct[6];
+
+varchar ferc_acct[7];
+
+varchar intercomp[7];
+
+varchar rpt_class[7];
+
+varchar future2[7];
+
+varchar debit[20];
+
+varchar credit[20];
+
+DOUBLE dbl_debit;
+
+DOUBLE dbl_credit;
+
+};
+
+struct product { varchar ferc_product[208];
+
+varchar product_type[200];
+
+varchar product_type_parent[200];
+
+varchar product_group[200];
+
+varchar amount[15];
+
+varchar entity[3];
+
+varchar resp_org[5];
+
+varchar perf_org[5];
+
+varchar LOCATION[6];
+
+varchar nat_acct[6];
+
+varchar ferc_acct[7];
+
+varchar intercomp[7];
+
+varchar rpt_class[7];
+
+varchar future2[7];
+
+varchar line_description[240];
+
+varchar acct_flag[20];
+
+DOUBLE dbl_amount;
+
+varchar cre_or_deb[2];
+
+struct feeder_detail_record detail_line;
+
+struct product* NEXT;
+
+};
+
+struct invoice * invoice_list_head;
+
+struct invoice * invoice_list_tail;
+
+struct product * product_feeder_head;
+
+struct product * product_feeder_tail;
+
+struct product * product_ferc_acct_feeder_head;
+
+struct product * product_ferc_acct_feeder_tail;
+
+#define NULLPTR (struct product*)0 #define INVNULLPTR (struct invoice*)0 char trans_type[10];
+
+char gl_period[8];
+
+char run_type[10];
+
+int type_code;
+
+int i_run_type;
+
+int debug_mode;
+
+char time__stamp[9];
+
+char return_val[35];
+
+varchar converted_period[35];
+
+char intrf_run_name[100];
+
+int seq_no;
+
+void get_21F_data();
+
+void validate_gl_accounts();
+
+void report_amt_summary();
+
+void group_21F_products();
+
+void get_gl_shortcodes();
+
+void set_gl_posted_status();
+
+void build_AR_file();
+
+void build_inv_summary_report();
+
+char* format_currency(DOUBLE);
+
+char* convert_gl_period(char*);
+
+void init_product_struct(struct product*);
+
+void copy_product_struct(struct product*, struct product*);
+
+void get_environment();
+
+void open_report_files(char**);
+
+void open_ar_files(char**);
+
+void close_files();
+
+char* rtrim(char* string);
+
+void insert_interface_tables();
+
+void update_interface_tables();
+
+int sql_error(int, char*);
+
+char* timestamp();
+
+char* time_stamp();
+
+int open_connection(char*, char*, char*, char*);
+
+int stricmp(const char* s1, const char* s2);
+
+// missing ON target SYSTEM int main(int argc, char** argv) { int records_exist;
+
+EXEC SQL WHENEVER
+SQLERROR DO sql_error(ERROR, "Error processing in main() function:");
+
+records_exist = FALSE;
+
+interfaceStatus = PENDING;
+
+printf("TBS_AR: Start time:  %s", time_stamp());
+
+printf("*****************************************\n\n");
+
+fflush(STDOUT);
+
+IF ((argc != 4) && (argc != 3)) { fprintf(stderr, "Usage: TBS_AR <transaction type> <gl period> <run_type>\n");
+
+fprintf(stderr, "OR\n");
+
+fprintf(stderr, "Usage: TBS_AR <transaction type> <run_type>\n");
+
+fflush(stderr);
+
+exit(ERROR);
+
+} strcpy(trans_type, argv[1]);
+
+IF (strcmp(argv[2], "DAILY") == 0) { i_run_type = DAILY;
+
+strcpy(run_type, "DAILY");
+
+} ELSE IF (strcmp(argv[3], "MONTH") == 0) { i_run_type = MONTH;
+
+strcpy(run_type, "MONTH");
+
+} strcpy(gl_period, argv[2]);
+
+get_environment();
+
+open_report_files(argv);
+
+IF ((i_run_type == DAILY) || (debug_mode == DEBUG)) { open_ar_files(argv);
+
+} insert_interface_tables();
+
+IF (strcmp(trans_type, TRANS_CODE_21F) == 0) { get_21F_data();
+
+validate_gl_accounts();
+
+group_21F_products();
+
+report_amt_summary();
+
+IF ((i_run_type == DAILY) || (debug_mode == DEBUG)) { build_AR_file();
+
+} ELSE { build_inv_summary_report();
+
+} } close_files();
+
+update_interface_tables();
+
+printf("\n\n****************************************\n");
+
+printf("TBS_AR: End time:  %s\n", time_stamp());
+
+fflush(STDOUT);
+
+RETURN (interfaceStatus);
+
+} void get_environment() { EXEC SQL WHENEVER
+SQLERROR DO sql_error(ERROR, "Error opening pbs database connection:");
+
+IF ((env_pbs_user = getenv("PBS_USERNAME")) == NULL) { fprintf(stderr, "No PBS_USERNAME environment variable, abort.\n\n");
+
+printf("No PBS_USERNAME environment variable, abort.\n\n");
+
+fflush(stderr);
+
+fflush(STDOUT);
+
+} IF ((env_pbs_pass = getenv("PBS_PASSWORD")) == NULL) { fprintf(stderr, "No PBS_PASSWORD environment variable, abort.\n\n");
+
+printf("No PBS_PASSWORD environment variable, abort.\n\n");
+
+fflush(stderr);
+
+fflush(STDOUT);
+
+} IF ((env_pbs_serv = getenv("TWO_TASK")) == NULL) { fprintf(stderr, "No PBS_SERVER environment variable, abort.\n\n");
+
+printf("No PBS_SERVER environment variable, abort.\n\n");
+
+fflush(stderr);
+
+fflush(STDOUT);
+
+} IF (open_connection(env_pbs_user, env_pbs_pass, env_pbs_serv, pwrline_server_alias)) { exit(ERROR);
+
+} EXEC SQL WHENEVER
+SQLERROR DO sql_error(ERROR, "Error opening gl database connection:");
+
+IF ((env_gl_user = getenv("GL_USERNAME")) == NULL) { fprintf(stderr, "No GL_USERNAME environment variable, abort.\n\n");
+
+printf("No GL_USERNAME environment variable, abort.\n\n");
+
+fflush(stderr);
+
+fflush(STDOUT);
+
+} IF ((env_gl_pass = getenv("GL_PASSWORD")) == NULL) { fprintf(stderr, "No PBS_PASSWORD environment variable, abort.\n\n");
+
+printf("No PBS_PASSWORD environment variable, abort.\n\n");
+
+fflush(stderr);
+
+fflush(STDOUT);
+
+} #if 0 // eFMS interface discontinued IF ((env_gl_serv = getenv("GL_SERVER")) == NULL) { fprintf(stderr, "No GL_SERVER environment variable, abort.\n\n");
+
+printf("No GL_SERVER environment variable, abort.\n\n");
+
+fflush(stderr);
+
+fflush(STDOUT);
+
+} EXEC SQL WHENEVER
+SQLERROR DO sql_error(ERROR, "Error opening boss database connection:");
+
+IF (open_connection(env_gl_user, env_gl_pass, env_gl_serv, gl_server_alias)) { exit(ERROR);
+
+} #endif // eFMS interface discontinued // BDI_I_013,
+                           PREFIX AR DATA FILE lines WITH GL Period // - Allow it TO be disabled IF necessary. char* env_prefix_disable;
+
+IF ((env_prefix_disable = getenv("PBI_AR_GL_PERIOD_LINE_PREFIX_DISABLE")) != NULL) { gl_period_prefix_disable = (stricmp(env_prefix_disable, "true") == 0);
+
+} } void get_21F_data() { struct product * new_product_record;
+
+struct invoice * new_invoice_record;
+
+struct invoice * invoice_list_ptr;
+
+struct product * product_list_ptr;
+
+int previous_products;
+
+int invoice_count = 0;
+
+int product_count = 0;
+
+int loop_count = 0;
+
+int firmnesstype_count = 0;
+
+/* RKObiaju DMND0004574 network contract support */  int network_count;
+
+int starttime_count;
+
+int nonfirm_count;
+
+int durationtype_count;
+
+DOUBLE temp_amt1;
+
+DOUBLE temp_amt2;
+
+DOUBLE temp_amt3;
+
+varchar invoice_no[25];
+
+varchar invoice_no_for_count[25];
+
+varchar invoice_type[25];
+
+varchar temp_invoice_type[25];
+
+varchar inv_rev_no[3];
+
+varchar product_type[200];
+
+varchar amount[16];
+
+varchar customer_id[15];
+
+varchar customer_name[200];
+
+varchar csc_name[30];
+
+varchar customer_type_code[15];
+
+varchar srvc_to_dt[20];
+
+varchar invoice_dt[20];
+
+varchar starttime[20];
+
+varchar last_pay_dt[20];
+
+varchar pay_due_dt[20];
+
+varchar entity[3];
+
+varchar resp_org[5];
+
+varchar perf_org[5];
+
+varchar LOCATION[6];
+
+varchar nat_acct[6];
+
+varchar ferc_acct[7];
+
+varchar intercomp[3];
+
+varchar rpt_class[7];
+
+varchar future2[7];
+
+varchar line_description[240];
+
+varchar acct_flag[20];
+
+varchar glperiod[20];
+
+varchar account_id[50];
+
+varchar firmness_type[50];
+
+varchar contract_no[50];
+
+EXEC SQL WHENEVER
+SQLERROR DO sql_error(ERROR, "ERROR PICKING UP 21F DATA:");
+
+IF (i_run_type == MONTH) { EXEC SQL WHENEVER NOT FOUND DO true();
+
+EXEC SQL AT :pwrline_server_alias
+SELECT COUNT(*) INTO :invoice_count
+FROM TBSLODE.CUSTOMER C,
+     TBSLODE.TVAGLPOSTINGSTATUS GL,
+     TBSLODE.TVACSC CSC,
+     TBSLODE.INVTBSSUMMARY INV,
+     TBSLODE.ACCOUNT ACT
+WHERE GL.GLPOSTSTATUS = 'PENDING'
+  AND C.UIDCSC = CSC.UIDCSC
+  AND C.CUSTOMERID = GL.CUSTOMERID
+  AND C.CUSTOMERTYPECODE = 'TRANS'
+  AND GL.GLPERIOD = :gl_period
+  AND INV.INVOICENO = GL.INVOICENO
+  AND C.CUSTOMERID <> '5000'
+  AND INV.INVOICEREVNO = GL.INVOICEREVNO
+  AND ACT.UIDCUSTOMER = C.UIDCUSTOMER
+  AND SUBSTR(ACT.ACCOUNTID, INSTR(ACT.ACCOUNTID, '_', 1) + 1) LIKE SUBSTR(GL.INVOICENO, INSTR(GL.INVOICENO, '-', 1, 3) + 1, 1) || '%';
+
+} ELSE IF (i_run_type == DAILY) { EXEC SQL WHENEVER NOT FOUND DO true();
+
+EXEC SQL AT :pwrline_server_alias
+SELECT COUNT(*) INTO :invoice_count
+FROM TBSLODE.CUSTOMER C,
+     TBSLODE.TVAGLPOSTINGSTATUS GL,
+     TBSLODE.TVACSC CSC,
+     TBSLODE.INVTBSSUMMARY INV,
+     TBSLODE.ACCOUNT ACT
+WHERE GL.GLPOSTSTATUS = 'PENDING'
+  AND C.UIDCSC = CSC.UIDCSC
+  AND C.CUSTOMERID = GL.CUSTOMERID
+  AND C.CUSTOMERTYPECODE = 'TRANS'
+  AND GL.CREATEDTIME BETWEEN TO_DATE(TO_CHAR(SYSDATE-31, 'YYYYMMDD') || ' 21:00:01', 'YYYYMMDD HH24:MI:SS') AND TO_DATE(TO_CHAR(SYSDATE, 'YYYYMMDD') || ' 21:00:00', 'YYYYMMDD HH24:MI:SS')
+  AND INV.INVOICENO = GL.INVOICENO
+  AND C.CUSTOMERID <> '5000'
+  AND INV.INVOICEREVNO = GL.INVOICEREVNO
+  AND ACT.UIDCUSTOMER = C.UIDCUSTOMER
+  AND SUBSTR(ACT.ACCOUNTID, INSTR(ACT.ACCOUNTID, '_', 1) + 1) LIKE SUBSTR(GL.INVOICENO, INSTR(GL.INVOICENO, '-', 1, 3) + 1, 1) || '%';
+
+} IF (invoice_count <= 0) { IF (i_run_type == DAILY) { varchar date1[30];
+
+varchar date2[30];
+
+EXEC SQL WHENEVER NOT FOUND DO true();
+
+EXEC SQL AT :pwrline_server_alias
+SELECT TO_CHAR(SYSDATE-31, 'MM-DD-YYYY') || ' 21:00:01',
+       TO_CHAR(SYSDATE, 'MM-DD-YYYY') || ' 21:00:00' INTO :date1,
+                                                          :date2
+FROM DUAL;
+
+date1.arr[date1.len] = '\0';
+
+date2.arr[date2.len] = '\0';
+
+fprintf(rptFile, "No PENDING invoices on TVAGLPOSTINGSTATUS between %s and %s\n", date1.arr, date2.arr);
+
+fflush(rptFile);
+
+printf("No PENDING invoices on TVAGLPOSTINGSTATUS between %s and %s\n", date1.arr, date2.arr);
+
+fflush(STDOUT);
+
+} ELSE IF (i_run_type == MONTH) { fprintf(rptFile, "No PENDING invoices on TVAGLPOSTINGSTATUS for gl period: %s\n", gl_period);
+
+fflush(rptFile);
+
+printf("No PENDING invoices on TVAGLPOSTINGSTATUS for gl period: %s\n", gl_period);
+
+fflush(STDOUT);
+
+} interfaceStatus = NORECS;
+
+close_files();
+
+update_interface_tables();
+
+exit(NORECS);
+
+} IF (i_run_type == MONTH) { EXEC SQL WHENEVER NOT FOUND DO BREAK;
+
+EXEC SQL AT :pwrline_server_alias DECLARE c_get_inv_1
+CURSOR
+FOR
+SELECT GL.INVOICENO,
+       SUBSTR(ACT.ACCOUNTID, INSTR(ACT.ACCOUNTID, '_', 1) + 1) INVOICETYPE,
+       GL.INVOICEREVNO,
+       GL.CUSTOMERID,
+       CSC.CSCNAME,
+       C.CUSTOMERTYPECODE,
+       C.NAME,
+       TO_CHAR(NVL(INV.SRVCTODATE, INV.INVOICEISSUEDATE), 'MM/DD/YY') SRVCTODATE,
+       TO_CHAR(NVL(INV.INVOICEISSUEDATE, INV.PAYMENTDUEDATE), 'MM/DD/YY') INVOICEISSUEDATE,
+       TO_CHAR(INV.PAYMENTDUEDATE, 'MM/DD/YY') LASTPAYDATE,
+       TO_CHAR(INV.PAYMENTDUEDATE, 'MM/DD/YY') PAYDUEDATE,
+       GLPERIOD,
+       ACT.ACCOUNTID
+FROM TBSLODE.CUSTOMER C,
+     TBSLODE.TVAGLPOSTINGSTATUS GL,
+     TBSLODE.TVACSC CSC,
+     TBSLODE.INVTBSSUMMARY INV,
+     TBSLODE.ACCOUNT ACT
+WHERE GL.GLPOSTSTATUS = 'PENDING'
+  AND C.UIDCSC = CSC.UIDCSC
+  AND C.CUSTOMERID = GL.CUSTOMERID
+  AND C.CUSTOMERTYPECODE = 'TRANS'
+  AND GL.GLPERIOD = :gl_period
+  AND C.CUSTOMERID <> '5000'
+  AND INV.INVOICENO = GL.INVOICENO
+  AND INV.INVOICEREVNO = GL.INVOICEREVNO
+  AND ACT.UIDCUSTOMER = C.UIDCUSTOMER
+  AND SUBSTR(ACT.ACCOUNTID, INSTR(ACT.ACCOUNTID, '_', 1) + 1) LIKE SUBSTR(GL.INVOICENO, INSTR(GL.INVOICENO, '-', 1, 3) + 1, 1) || '%'
+ORDER BY GL.CUSTOMERID;
+
+EXEC SQL OPEN c_get_inv_1;
+
+} ELSE IF (i_run_type == DAILY) { EXEC SQL WHENEVER NOT FOUND DO BREAK;
+
+EXEC SQL AT :pwrline_server_alias DECLARE c_get_inv_2
+CURSOR
+FOR
+SELECT GL.INVOICENO,
+       SUBSTR(ACT.ACCOUNTID, INSTR(ACT.ACCOUNTID, '_', 1) + 1) INVOICETYPE,
+       GL.INVOICEREVNO,
+       GL.CUSTOMERID,
+       CSC.CSCNAME,
+       C.CUSTOMERTYPECODE,
+       C.NAME,
+       TO_CHAR(NVL(INV.SRVCTODATE, INV.INVOICEISSUEDATE), 'MM/DD/YY') SRVCTODATE,
+       TO_CHAR(NVL(INV.INVOICEISSUEDATE, INV.PAYMENTDUEDATE), 'MM/DD/YY') INVOICEISSUEDATE,
+       TO_CHAR(INV.PAYMENTDUEDATE, 'MM/DD/YY') LASTPAYDATE,
+       TO_CHAR(INV.PAYMENTDUEDATE, 'MM/DD/YY') PAYDUEDATE,
+       GLPERIOD,
+       ACT.ACCOUNTID
+FROM TBSLODE.CUSTOMER C,
+     TBSLODE.TVAGLPOSTINGSTATUS GL,
+     TBSLODE.TVACSC CSC,
+     TBSLODE.INVTBSSUMMARY INV,
+     TBSLODE.ACCOUNT ACT
+WHERE GL.GLPOSTSTATUS = 'PENDING'
+  AND C.UIDCSC = CSC.UIDCSC
+  AND C.CUSTOMERID = GL.CUSTOMERID
+  AND C.CUSTOMERTYPECODE = 'TRANS'
+  AND GL.CREATEDTIME BETWEEN TO_DATE(TO_CHAR(SYSDATE-31, 'YYYYMMDD') || ' 21:00:01', 'YYYYMMDD HH24:MI:SS') AND TO_DATE(TO_CHAR(SYSDATE, 'YYYYMMDD') || ' 21:00:00', 'YYYYMMDD HH24:MI:SS')
+  AND C.CUSTOMERID <> '5000'
+  AND INV.INVOICENO = GL.INVOICENO
+  AND INV.INVOICEREVNO = GL.INVOICEREVNO
+  AND ACT.UIDCUSTOMER = C.UIDCUSTOMER
+  AND SUBSTR(ACT.ACCOUNTID, INSTR(ACT.ACCOUNTID, '_', 1) + 1) LIKE SUBSTR(GL.INVOICENO, INSTR(GL.INVOICENO, '-', 1, 3) + 1, 1) || '%'
+ORDER BY GL.CUSTOMERID;
+
+EXEC SQL OPEN c_get_inv_2;
+
+} invoice_list_head = INVNULLPTR;
+
+WHILE (1) { IF (i_run_type == MONTH) { EXEC SQL FETCH c_get_inv_1 INTO :invoice_no,
+                                                                       :invoice_type,
+                                                                       :inv_rev_no,
+                                                                       :customer_id,
+                                                                       :csc_name,
+                                                                       :customer_type_code,
+                                                                       :customer_name,
+                                                                       :srvc_to_dt,
+                                                                       :invoice_dt,
+                                                                       :last_pay_dt,
+                                                                       :pay_due_dt,
+                                                                       :glperiod,
+                                                                       :account_id;
+
+} ELSE IF (i_run_type == DAILY) { EXEC SQL FETCH c_get_inv_2 INTO :invoice_no,
+                                                                  :invoice_type,
+                                                                  :inv_rev_no,
+                                                                  :customer_id,
+                                                                  :csc_name,
+                                                                  :customer_type_code,
+                                                                  :customer_name,
+                                                                  :srvc_to_dt,
+                                                                  :invoice_dt,
+                                                                  :last_pay_dt,
+                                                                  :pay_due_dt,
+                                                                  :glperiod,
+                                                                  :account_id;
+
+} /* RKObiaju DMND0004574 network contract support - start with PTP contracts */  account_id.arr[account_id.len] = '\0';
+
+IF (strstr((char*)account_id.arr, "NWK") == NULL) { EXEC SQL WHENEVER NOT FOUND DO true();
+
+EXEC SQL AT :pwrline_server_alias
+SELECT COUNT(DISTINCT FIRMNESSTYPE) INTO :firmnesstype_count
+FROM TBSLODE.CUSTOMER C,
+     TBSLODE.TVAGLPOSTINGSTATUS GL,
+     TBSLODE.TVACSC CSC,
+     TBSLODE.INVTBSSUMMARY INV,
+     TBSLODE.ACCOUNT ACT,
+     TBSLODE.INVPTPDETAILS PTP
+WHERE GL.GLPOSTSTATUS = 'PENDING'
+  AND C.UIDCSC = CSC.UIDCSC
+  AND C.CUSTOMERID = GL.CUSTOMERID
+  AND C.CUSTOMERTYPECODE = 'TRANS'
+  AND GL.CREATEDTIME BETWEEN TO_DATE(TO_CHAR(SYSDATE-31, 'YYYYMMDD') || ' 21:00:01', 'YYYYMMDD HH24:MI:SS') AND TO_DATE(TO_CHAR(SYSDATE, 'YYYYMMDD') || ' 21:00:00', 'YYYYMMDD HH24:MI:SS')
+  AND INV.INVOICENO = GL.INVOICENO
+  AND C.CUSTOMERID <> '5000'
+  AND INV.INVOICEREVNO = GL.INVOICEREVNO
+  AND ACT.UIDCUSTOMER = C.UIDCUSTOMER
+  AND PTP.ACCOUNTID = :account_id
+  AND SUBSTR(ACT.ACCOUNTID, INSTR(ACT.ACCOUNTID, '_', 1) + 1) LIKE SUBSTR(GL.INVOICENO, INSTR(GL.INVOICENO, '-', 1, 3) + 1, 1) || '%';
+
+IF (firmnesstype_count > 1) { EXEC SQL WHENEVER NOT FOUND DO true();
+
+EXEC SQL AT :pwrline_server_alias
+SELECT DISTINCT PTP.CONTRACTNO INTO :contract_no
+FROM TBSLODE.CUSTOMER C,
+     TBSLODE.TVAGLPOSTINGSTATUS GL,
+     TBSLODE.TVACSC CSC,
+     TBSLODE.INVTBSSUMMARY INV,
+     TBSLODE.ACCOUNT ACT,
+     TBSLODE.INVPTPDETAILS PTP,
+     TBSLODE.TVACONTRACT CON
+WHERE GL.GLPOSTSTATUS = 'PENDING'
+  AND C.UIDCSC = CSC.UIDCSC
+  AND C.CUSTOMERID = GL.CUSTOMERID
+  AND C.CUSTOMERTYPECODE = 'TRANS'
+  AND GL.CREATEDTIME BETWEEN TO_DATE(TO_CHAR(SYSDATE-31, 'YYYYMMDD') || ' 21:00:01', 'YYYYMMDD HH24:MI:SS') AND TO_DATE(TO_CHAR(SYSDATE, 'YYYYMMDD') || ' 21:00:00', 'YYYYMMDD HH24:MI:SS')
+  AND INV.INVOICENO = GL.INVOICENO
+  AND C.CUSTOMERID <> '5000'
+  AND INV.INVOICEREVNO = GL.INVOICEREVNO
+  AND PTP.CONTRACTNO = CON.CONTRACTNO
+  AND CON.STOPTIME IS NULL
+  AND ACT.UIDCUSTOMER = C.UIDCUSTOMER
+  AND PTP.ACCOUNTID = :account_id
+  AND PTP.FIRMNESSTYPE = 'NON FIRM'
+  AND SUBSTR(ACT.ACCOUNTID, INSTR(ACT.ACCOUNTID, '_', 1) + 1) LIKE SUBSTR(GL.INVOICENO, INSTR(GL.INVOICENO, '-', 1, 3) + 1, 1) || '%';
+
+} /* Closes nonfirm firmnesstype_count greater than 1*/  ELSE { EXEC SQL WHENEVER NOT FOUND DO true();
+
+EXEC SQL AT :pwrline_server_alias
+SELECT COUNT(DISTINCT FIRMNESSTYPE) INTO :nonfirm_count
+FROM TBSLODE.CUSTOMER C,
+     TBSLODE.TVAGLPOSTINGSTATUS GL,
+     TBSLODE.TVACSC CSC,
+     TBSLODE.INVTBSSUMMARY INV,
+     TBSLODE.ACCOUNT ACT,
+     TBSLODE.INVPTPDETAILS PTP
+WHERE GL.GLPOSTSTATUS = 'PENDING'
+  AND C.UIDCSC = CSC.UIDCSC
+  AND C.CUSTOMERID = GL.CUSTOMERID
+  AND C.CUSTOMERTYPECODE = 'TRANS'
+  AND GL.CREATEDTIME BETWEEN TO_DATE(TO_CHAR(SYSDATE-31, 'YYYYMMDD') || ' 21:00:01', 'YYYYMMDD HH24:MI:SS') AND TO_DATE(TO_CHAR(SYSDATE, 'YYYYMMDD') || ' 21:00:00', 'YYYYMMDD HH24:MI:SS')
+  AND INV.INVOICENO = GL.INVOICENO
+  AND C.CUSTOMERID <> '5000'
+  AND INV.INVOICEREVNO = GL.INVOICEREVNO
+  AND ACT.UIDCUSTOMER = C.UIDCUSTOMER
+  AND PTP.ACCOUNTID = :account_id
+  AND PTP.FIRMNESSTYPE = 'NON FIRM'
+  AND SUBSTR(ACT.ACCOUNTID, INSTR(ACT.ACCOUNTID, '_', 1) + 1) LIKE SUBSTR(GL.INVOICENO, INSTR(GL.INVOICENO, '-', 1, 3) + 1, 1) || '%';
+
+IF (nonfirm_count > 0) { EXEC SQL WHENEVER NOT FOUND DO true();
+
+EXEC SQL AT :pwrline_server_alias
+SELECT DISTINCT PTP.CONTRACTNO INTO :contract_no
+FROM TBSLODE.CUSTOMER C,
+     TBSLODE.TVAGLPOSTINGSTATUS GL,
+     TBSLODE.TVACSC CSC,
+     TBSLODE.INVTBSSUMMARY INV,
+     TBSLODE.ACCOUNT ACT,
+     TBSLODE.INVPTPDETAILS PTP,
+     TBSLODE.TVACONTRACT CON
+WHERE GL.GLPOSTSTATUS = 'PENDING'
+  AND C.UIDCSC = CSC.UIDCSC
+  AND C.CUSTOMERID = GL.CUSTOMERID
+  AND C.CUSTOMERTYPECODE = 'TRANS'
+  AND GL.CREATEDTIME BETWEEN TO_DATE(TO_CHAR(SYSDATE-31, 'YYYYMMDD') || ' 21:00:01', 'YYYYMMDD HH24:MI:SS') AND TO_DATE(TO_CHAR(SYSDATE, 'YYYYMMDD') || ' 21:00:00', 'YYYYMMDD HH24:MI:SS')
+  AND INV.INVOICENO = GL.INVOICENO
+  AND C.CUSTOMERID <> '5000'
+  AND INV.INVOICEREVNO = GL.INVOICEREVNO
+  AND PTP.CONTRACTNO = CON.CONTRACTNO
+  AND CON.STOPTIME IS NULL
+  AND ACT.UIDCUSTOMER = C.UIDCUSTOMER
+  AND PTP.ACCOUNTID = :account_id
+  AND PTP.FIRMNESSTYPE = 'NON FIRM'
+  AND SUBSTR(ACT.ACCOUNTID, INSTR(ACT.ACCOUNTID, '_', 1) + 1) LIKE SUBSTR(GL.INVOICENO, INSTR(GL.INVOICENO, '-', 1, 3) + 1, 1) || '%';
+
+} /* Closes only one firmness type and non firm */  ELSE { EXEC SQL WHENEVER NOT FOUND DO true();
+
+EXEC SQL AT :pwrline_server_alias
+SELECT COUNT(DISTINCT DURATIONTYPE) INTO :durationtype_count
+FROM TBSLODE.CUSTOMER C,
+     TBSLODE.TVAGLPOSTINGSTATUS GL,
+     TBSLODE.TVACSC CSC,
+     TBSLODE.INVTBSSUMMARY INV,
+     TBSLODE.ACCOUNT ACT,
+     TBSLODE.INVPTPDETAILS PTP
+WHERE GL.GLPOSTSTATUS = 'PENDING'
+  AND C.UIDCSC = CSC.UIDCSC
+  AND C.CUSTOMERID = GL.CUSTOMERID
+  AND C.CUSTOMERTYPECODE = 'TRANS'
+  AND GL.CREATEDTIME BETWEEN TO_DATE(TO_CHAR(SYSDATE-31, 'YYYYMMDD') || ' 21:00:01', 'YYYYMMDD HH24:MI:SS') AND TO_DATE(TO_CHAR(SYSDATE, 'YYYYMMDD') || ' 21:00:00', 'YYYYMMDD HH24:MI:SS')
+  AND INV.INVOICENO = GL.INVOICENO
+  AND C.CUSTOMERID <> '5000'
+  AND INV.INVOICEREVNO = GL.INVOICEREVNO
+  AND ACT.UIDCUSTOMER = C.UIDCUSTOMER
+  AND PTP.ACCOUNTID = :account_id
+  AND PTP.FIRMNESSTYPE = 'FIRM'
+  AND SUBSTR(ACT.ACCOUNTID, INSTR(ACT.ACCOUNTID, '_', 1) + 1) LIKE SUBSTR(GL.INVOICENO, INSTR(GL.INVOICENO, '-', 1, 3) + 1, 1) || '%';
+
+IF (durationtype_count > 1) { EXEC SQL WHENEVER NOT FOUND DO true();
+
+EXEC SQL AT :pwrline_server_alias
+SELECT DISTINCT PTP.CONTRACTNO INTO :contract_no
+FROM TBSLODE.CUSTOMER C,
+     TBSLODE.TVAGLPOSTINGSTATUS GL,
+     TBSLODE.TVACSC CSC,
+     TBSLODE.INVTBSSUMMARY INV,
+     TBSLODE.ACCOUNT ACT,
+     TBSLODE.INVPTPDETAILS PTP,
+     TBSLODE.TVACONTRACT CON
+WHERE GL.GLPOSTSTATUS = 'PENDING'
+  AND C.UIDCSC = CSC.UIDCSC
+  AND C.CUSTOMERID = GL.CUSTOMERID
+  AND C.CUSTOMERTYPECODE = 'TRANS'
+  AND GL.CREATEDTIME BETWEEN TO_DATE(TO_CHAR(SYSDATE-31, 'YYYYMMDD') || ' 21:00:01', 'YYYYMMDD HH24:MI:SS') AND TO_DATE(TO_CHAR(SYSDATE, 'YYYYMMDD') || ' 21:00:00', 'YYYYMMDD HH24:MI:SS')
+  AND C.CUSTOMERID <> '5000'
+  AND INV.INVOICENO = GL.INVOICENO
+  AND INV.INVOICEREVNO = GL.INVOICEREVNO
+  AND ACT.UIDCUSTOMER = C.UIDCUSTOMER
+  AND PTP.INVOICENO = :invoice_no
+  AND PTP.FIRMNESSTYPE = 'FIRM'
+  AND PTP.CONTRACTNO = CON.CONTRACTNO
+  AND CON.STOPTIME IS NULL
+  AND PTP.DURATIONTYPE IN ('DAILY',
+                           'WEEKLY',
+                           'MONTHLY')
+  AND SUBSTR(ACT.ACCOUNTID, INSTR(ACT.ACCOUNTID, '_', 1) + 1) LIKE SUBSTR(GL.INVOICENO, INSTR(GL.INVOICENO, '-', 1, 3) + 1, 1) || '%';
+
+} /*Closes durationtype_count > 1 */  ELSE { EXEC SQL WHENEVER NOT FOUND DO true();
+
+EXEC SQL AT :pwrline_server_alias
+SELECT COUNT (DISTINCT PTP.CONTRACTNO) INTO :starttime_count
+FROM TBSLODE.CUSTOMER C,
+     TBSLODE.TVAGLPOSTINGSTATUS GL,
+     TBSLODE.TVACSC CSC,
+     TBSLODE.INVTBSSUMMARY INV,
+     TBSLODE.ACCOUNT ACT,
+     TBSLODE.INVPTPDETAILS PTP,
+     TBSLODE.TVACONTRACT CON
+WHERE C.UIDCSC = CSC.UIDCSC
+  AND C.CUSTOMERID = GL.CUSTOMERID
+  AND C.CUSTOMERTYPECODE = 'TRANS'
+  AND GL.CREATEDTIME BETWEEN TO_DATE(TO_CHAR(SYSDATE-31, 'YYYYMMDD') || ' 21:00:01', 'YYYYMMDD HH24:MI:SS') AND TO_DATE(TO_CHAR(SYSDATE, 'YYYYMMDD') || ' 21:00:00', 'YYYYMMDD HH24:MI:SS')
+  AND C.CUSTOMERID <> '5000'
+  AND INV.INVOICENO = GL.INVOICENO
+  AND INV.INVOICEREVNO = GL.INVOICEREVNO
+  AND ACT.UIDCUSTOMER = C.UIDCUSTOMER
+  AND PTP.INVOICENO = GL.INVOICENO
+  AND PTP.INVOICENO = :invoice_no
+  AND PTP.FIRMNESSTYPE = 'FIRM'
+  AND PTP.CONTRACTNO = CON.CONTRACTNO
+  AND CON.STOPTIME IS NULL
+  AND CON.STARTTIME =
+    (SELECT MAX(CON.STARTTIME)
+     FROM TBSLODE.TVACONTRACT CON,
+          TBSLODE.ACCOUNT ACCT,
+          TBSLODE.INVPTPDETAILS PTP
+     WHERE CON.UIDACCOUNT = ACCT.UIDACCOUNT
+       AND PTP.ACCOUNTID = ACCT.ACCOUNTID
+       AND PTP.INVOICENO = :invoice_no)
+  AND SUBSTR(ACT.ACCOUNTID, INSTR(ACT.ACCOUNTID, '_', 1) + 1) LIKE SUBSTR(GL.INVOICENO, INSTR(GL.INVOICENO, '-', 1, 3) + 1, 1) || '%';
+
+IF (starttime_count > 1) { EXEC SQL WHENEVER NOT FOUND DO true();
+
+EXEC SQL AT :pwrline_server_alias
+SELECT DISTINCT CON.STARTTIME INTO :starttime
+FROM TBSLODE.CUSTOMER C,
+     TBSLODE.TVAGLPOSTINGSTATUS GL,
+     TBSLODE.TVACSC CSC,
+     TBSLODE.INVTBSSUMMARY INV,
+     TBSLODE.ACCOUNT ACT,
+     TBSLODE.INVPTPDETAILS PTP,
+     TBSLODE.TVACONTRACT CON
+WHERE C.UIDCSC = CSC.UIDCSC
+  AND C.CUSTOMERID = GL.CUSTOMERID
+  AND C.CUSTOMERTYPECODE = 'TRANS'
+  AND GL.CREATEDTIME BETWEEN TO_DATE(TO_CHAR(SYSDATE-31, 'YYYYMMDD') || ' 21:00:01', 'YYYYMMDD HH24:MI:SS') AND TO_DATE(TO_CHAR(SYSDATE, 'YYYYMMDD') || ' 21:00:00', 'YYYYMMDD HH24:MI:SS')
+  AND C.CUSTOMERID <> '5000'
+  AND INV.INVOICENO = GL.INVOICENO
+  AND INV.INVOICEREVNO = GL.INVOICEREVNO
+  AND ACT.UIDCUSTOMER = C.UIDCUSTOMER
+  AND PTP.INVOICENO = GL.INVOICENO
+  AND PTP.INVOICENO = :invoice_no
+  AND PTP.FIRMNESSTYPE = 'FIRM'
+  AND PTP.CONTRACTNO = CON.CONTRACTNO
+  AND CON.STOPTIME IS NULL
+  AND CON.STARTTIME =
+    (SELECT MAX(CON.STARTTIME)
+     FROM TBSLODE.TVACONTRACT CON,
+          TBSLODE.ACCOUNT ACCT,
+          TBSLODE.INVPTPDETAILS PTP
+     WHERE CON.UIDACCOUNT = ACCT.UIDACCOUNT
+       AND PTP.ACCOUNTID = ACCT.ACCOUNTID
+       AND PTP.INVOICENO = :invoice_no)
+  AND SUBSTR(ACT.ACCOUNTID, INSTR(ACT.ACCOUNTID, '_', 1) + 1) LIKE SUBSTR(GL.INVOICENO, INSTR(GL.INVOICENO, '-', 1, 3) + 1, 1) || '%';
+
+EXEC SQL WHENEVER NOT FOUND DO true();
+
+EXEC SQL AT :pwrline_server_alias
+SELECT DISTINCT PTP.CONTRACTNO INTO :contract_no
+FROM TBSLODE.CUSTOMER C,
+     TBSLODE.TVAGLPOSTINGSTATUS GL,
+     TBSLODE.TVACSC CSC,
+     TBSLODE.INVTBSSUMMARY INV,
+     TBSLODE.ACCOUNT ACT,
+     TBSLODE.INVPTPDETAILS PTP,
+     TBSLODE.TVACONTRACT CON
+WHERE C.UIDCSC = CSC.UIDCSC
+  AND C.CUSTOMERID = GL.CUSTOMERID
+  AND C.CUSTOMERTYPECODE = 'TRANS'
+  AND GL.CREATEDTIME BETWEEN TO_DATE(TO_CHAR(SYSDATE-31, 'YYYYMMDD') || ' 21:00:01', 'YYYYMMDD HH24:MI:SS') AND TO_DATE(TO_CHAR(SYSDATE, 'YYYYMMDD') || ' 21:00:00', 'YYYYMMDD HH24:MI:SS')
+  AND C.CUSTOMERID <> '5000'
+  AND INV.INVOICENO = GL.INVOICENO
+  AND INV.INVOICEREVNO = GL.INVOICEREVNO
+  AND ACT.UIDCUSTOMER = C.UIDCUSTOMER
+  AND PTP.INVOICENO = GL.INVOICENO
+  AND PTP.INVOICENO = :invoice_no
+  AND PTP.FIRMNESSTYPE = 'FIRM'
+  AND PTP.CONTRACTNO = CON.CONTRACTNO
+  AND CON.STOPTIME IS NULL
+  AND CON.STARTTIME = :starttime
+  AND CON.CONTRACTNO =
+    (SELECT MAX(CON.STARTTIME)
+     FROM TBSLODE.TVACONTRACT CON,
+          TBSLODE.ACCOUNT ACCT,
+          TBSLODE.INVPTPDETAILS PTP
+     WHERE CON.UIDACCOUNT = ACCT.UIDACCOUNT
+       AND PTP.ACCOUNTID = ACCT.ACCOUNTID
+       AND CON.STARTTIME = :starttime
+       AND PTP.INVOICENO = :invoice_no)
+  AND SUBSTR(ACT.ACCOUNTID, INSTR(ACT.ACCOUNTID, '_', 1) + 1) LIKE SUBSTR(GL.INVOICENO, INSTR(GL.INVOICENO, '-', 1, 3) + 1, 1) || '%';
+
+} /*closes if startime count greather than 1 */  ELSE { EXEC SQL WHENEVER NOT FOUND DO true();
+
+EXEC SQL AT :pwrline_server_alias
+SELECT DISTINCT PTP.CONTRACTNO INTO :contract_no
+FROM TBSLODE.CUSTOMER C,
+     TBSLODE.TVAGLPOSTINGSTATUS GL,
+     TBSLODE.TVACSC CSC,
+     TBSLODE.INVTBSSUMMARY INV,
+     TBSLODE.ACCOUNT ACT,
+     TBSLODE.INVPTPDETAILS PTP,
+     TBSLODE.TVACONTRACT CON
+WHERE C.UIDCSC = CSC.UIDCSC
+  AND C.CUSTOMERID = GL.CUSTOMERID
+  AND C.CUSTOMERTYPECODE = 'TRANS'
+  AND GL.CREATEDTIME BETWEEN TO_DATE(TO_CHAR(SYSDATE-31, 'YYYYMMDD') || ' 21:00:01', 'YYYYMMDD HH24:MI:SS') AND TO_DATE(TO_CHAR(SYSDATE, 'YYYYMMDD') || ' 21:00:00', 'YYYYMMDD HH24:MI:SS')
+  AND C.CUSTOMERID <> '5000'
+  AND INV.INVOICENO = GL.INVOICENO
+  AND INV.INVOICEREVNO = GL.INVOICEREVNO
+  AND ACT.UIDCUSTOMER = C.UIDCUSTOMER
+  AND PTP.INVOICENO = GL.INVOICENO
+  AND PTP.INVOICENO = :invoice_no
+  AND PTP.FIRMNESSTYPE = 'FIRM'
+  AND PTP.CONTRACTNO = CON.CONTRACTNO
+  AND CON.STOPTIME IS NULL
+  AND CON.STARTTIME =
+    (SELECT MAX(CON.STARTTIME)
+     FROM TBSLODE.TVACONTRACT CON,
+          TBSLODE.ACCOUNT ACCT,
+          TBSLODE.INVPTPDETAILS PTP
+     WHERE CON.UIDACCOUNT = ACCT.UIDACCOUNT
+       AND PTP.ACCOUNTID = ACCT.ACCOUNTID
+       AND PTP.INVOICENO = :invoice_no)
+  AND SUBSTR(ACT.ACCOUNTID, INSTR(ACT.ACCOUNTID, '_', 1) + 1) LIKE SUBSTR(GL.INVOICENO, INSTR(GL.INVOICENO, '-', 1, 3) + 1, 1) || '%';
+
+} /*closes else startime count greather than 1 */  } /*Closes else for durationtype_count > 1 */  } /* Closes else for only one firmness type and not non firm */  } /* Closes else for only one firmness type */  } /* Closes if for non-network accounts */  ELSE { /* RKObiaju DMND0004574 network contract support  */  EXEC SQL WHENEVER NOT FOUND DO true();
+
+EXEC SQL AT :pwrline_server_alias
+SELECT COUNT (DISTINCT NWK.CONTRACTNO) INTO :network_count
+FROM TBSLODE.CUSTOMER C,
+     TBSLODE.TVAGLPOSTINGSTATUS GL,
+     TBSLODE.TVACSC CSC,
+     TBSLODE.INVTBSSUMMARY INV,
+     TBSLODE.ACCOUNT ACT,
+     TBSLODE.INVOTHERDETAILS NWK,
+     TBSLODE.TVACONTRACT CON
+WHERE GL.GLPOSTSTATUS = 'PENDING'
+  AND C.UIDCSC = CSC.UIDCSC
+  AND C.CUSTOMERID = GL.CUSTOMERID
+  AND C.CUSTOMERTYPECODE = 'TRANS'
+  AND GL.CREATEDTIME BETWEEN TO_DATE(TO_CHAR(SYSDATE-31, 'YYYYMMDD') || ' 21:00:01', 'YYYYMMDD HH24:MI:SS') AND TO_DATE(TO_CHAR(SYSDATE, 'YYYYMMDD') || ' 21:00:00', 'YYYYMMDD HH24:MI:SS')
+  AND NWK.CREATEDTIME BETWEEN TO_DATE(TO_CHAR(SYSDATE-31, 'YYYYMMDD') || ' 21:00:01', 'YYYYMMDD HH24:MI:SS') AND TO_DATE(TO_CHAR(SYSDATE, 'YYYYMMDD') || ' 21:00:00', 'YYYYMMDD HH24:MI:SS')
+  AND INV.INVOICENO = GL.INVOICENO
+  AND C.CUSTOMERID <> '5000'
+  AND INV.INVOICEREVNO = GL.INVOICEREVNO
+  AND NWK.CONTRACTNO = CON.CONTRACTNO
+  AND CON.STOPTIME IS NULL
+  AND ACT.UIDCUSTOMER = C.UIDCUSTOMER
+  AND NWK.ACCOUNTID = :account_id
+  AND SUBSTR(ACT.ACCOUNTID, INSTR(ACT.ACCOUNTID, '_', 1) + 1) LIKE SUBSTR(GL.INVOICENO, INSTR(GL.INVOICENO, '-', 1, 3) + 1, 1) || '%';
+
+IF (network_count == 1) { EXEC SQL WHENEVER NOT FOUND DO true();
+
+EXEC SQL AT :pwrline_server_alias
+SELECT DISTINCT NWK.CONTRACTNO INTO :contract_no
+FROM TBSLODE.CUSTOMER C,
+     TBSLODE.TVAGLPOSTINGSTATUS GL,
+     TBSLODE.TVACSC CSC,
+     TBSLODE.INVTBSSUMMARY INV,
+     TBSLODE.ACCOUNT ACT,
+     TBSLODE.INVOTHERDETAILS NWK,
+     TBSLODE.TVACONTRACT CON
+WHERE GL.GLPOSTSTATUS = 'PENDING'
+  AND C.UIDCSC = CSC.UIDCSC
+  AND C.CUSTOMERID = GL.CUSTOMERID
+  AND C.CUSTOMERTYPECODE = 'TRANS'
+  AND GL.CREATEDTIME BETWEEN TO_DATE(TO_CHAR(SYSDATE-31, 'YYYYMMDD') || ' 21:00:01', 'YYYYMMDD HH24:MI:SS') AND TO_DATE(TO_CHAR(SYSDATE, 'YYYYMMDD') || ' 21:00:00', 'YYYYMMDD HH24:MI:SS')
+  AND NWK.CREATEDTIME BETWEEN TO_DATE(TO_CHAR(SYSDATE-31, 'YYYYMMDD') || ' 21:00:01', 'YYYYMMDD HH24:MI:SS') AND TO_DATE(TO_CHAR(SYSDATE, 'YYYYMMDD') || ' 21:00:00', 'YYYYMMDD HH24:MI:SS')
+  AND INV.INVOICENO = GL.INVOICENO
+  AND C.CUSTOMERID <> '5000'
+  AND INV.INVOICEREVNO = GL.INVOICEREVNO
+  AND NWK.CONTRACTNO = CON.CONTRACTNO
+  AND CON.STOPTIME IS NULL
+  AND ACT.UIDCUSTOMER = C.UIDCUSTOMER
+  AND NWK.ACCOUNTID = :account_id
+  AND SUBSTR(ACT.ACCOUNTID, INSTR(ACT.ACCOUNTID, '_', 1) + 1) LIKE SUBSTR(GL.INVOICENO, INSTR(GL.INVOICENO, '-', 1, 3) + 1, 1) || '%';
+
+} ELSE { IF (network_count > 1) { /* unlikely scenario to find > 1 contract, but defensively select the most recent record */  EXEC SQL WHENEVER NOT FOUND DO true();
+
+EXEC SQL AT :pwrline_server_alias
+SELECT DISTINCT NWK.CONTRACTNO INTO :contract_no
+FROM TBSLODE.CUSTOMER C,
+     TBSLODE.TVAGLPOSTINGSTATUS GL,
+     TBSLODE.TVACSC CSC,
+     TBSLODE.INVTBSSUMMARY INV,
+     TBSLODE.ACCOUNT ACT,
+     TBSLODE.INVOTHERDETAILS NWK,
+     TBSLODE.TVACONTRACT CON
+WHERE GL.GLPOSTSTATUS = 'PENDING'
+  AND C.UIDCSC = CSC.UIDCSC
+  AND C.CUSTOMERID = GL.CUSTOMERID
+  AND C.CUSTOMERTYPECODE = 'TRANS'
+  AND GL.CREATEDTIME BETWEEN TO_DATE(TO_CHAR(SYSDATE-31, 'YYYYMMDD') || ' 21:00:01', 'YYYYMMDD HH24:MI:SS') AND TO_DATE(TO_CHAR(SYSDATE, 'YYYYMMDD') || ' 21:00:00', 'YYYYMMDD HH24:MI:SS')
+  AND NWK.CREATEDTIME BETWEEN TO_DATE(TO_CHAR(SYSDATE-31, 'YYYYMMDD') || ' 21:00:01', 'YYYYMMDD HH24:MI:SS') AND TO_DATE(TO_CHAR(SYSDATE, 'YYYYMMDD') || ' 21:00:00', 'YYYYMMDD HH24:MI:SS')
+  AND INV.INVOICENO = GL.INVOICENO
+  AND C.CUSTOMERID <> '5000'
+  AND INV.INVOICEREVNO = GL.INVOICEREVNO
+  AND NWK.CONTRACTNO = CON.CONTRACTNO
+  AND CON.STOPTIME IS NULL
+  AND CON.STARTTIME =
+    (SELECT MAX(CON2.STARTTIME)
+     FROM TBSLODE.TVACONTRACT CON2,
+          TBSLODE.ACCOUNT ACCT2,
+          TBSLODE.INVOTHERDETAILS NWK2
+     WHERE CON2.UIDACCOUNT = ACCT2.UIDACCOUNT
+       AND NWK2.ACCOUNTID = ACCT2.ACCOUNTID
+       AND NWK2.INVOICENO = :invoice_no)
+  AND ACT.UIDCUSTOMER = C.UIDCUSTOMER
+  AND NWK.ACCOUNTID = :account_id
+  AND SUBSTR(ACT.ACCOUNTID, INSTR(ACT.ACCOUNTID, '_', 1) + 1) LIKE SUBSTR(GL.INVOICENO, INSTR(GL.INVOICENO, '-', 1, 3) + 1, 1) || '%';
+
+} IF (network_count == 0) { /* Houston we have a problem - no contract found */ /* we will knowingly trigger a NOT FOUND error */  EXEC SQL WHENEVER NOT FOUND DO true();
+
+EXEC SQL AT :pwrline_server_alias
+SELECT DISTINCT NWK.CONTRACTNO INTO :contract_no
+FROM TBSLODE.CUSTOMER C,
+     TBSLODE.TVAGLPOSTINGSTATUS GL,
+     TBSLODE.TVACSC CSC,
+     TBSLODE.INVTBSSUMMARY INV,
+     TBSLODE.ACCOUNT ACT,
+     TBSLODE.INVOTHERDETAILS NWK,
+     TBSLODE.TVACONTRACT CON
+WHERE GL.GLPOSTSTATUS = 'PENDING'
+  AND C.UIDCSC = CSC.UIDCSC
+  AND C.CUSTOMERID = GL.CUSTOMERID
+  AND C.CUSTOMERTYPECODE = 'TRANS'
+  AND GL.CREATEDTIME BETWEEN TO_DATE(TO_CHAR(SYSDATE-31, 'YYYYMMDD') || ' 21:00:01', 'YYYYMMDD HH24:MI:SS') AND TO_DATE(TO_CHAR(SYSDATE, 'YYYYMMDD') || ' 21:00:00', 'YYYYMMDD HH24:MI:SS')
+  AND NWK.CREATEDTIME BETWEEN TO_DATE(TO_CHAR(SYSDATE-31, 'YYYYMMDD') || ' 21:00:01', 'YYYYMMDD HH24:MI:SS') AND TO_DATE(TO_CHAR(SYSDATE, 'YYYYMMDD') || ' 21:00:00', 'YYYYMMDD HH24:MI:SS')
+  AND INV.INVOICENO = GL.INVOICENO
+  AND C.CUSTOMERID <> '5000'
+  AND INV.INVOICEREVNO = GL.INVOICEREVNO
+  AND NWK.CONTRACTNO = CON.CONTRACTNO
+  AND CON.STOPTIME IS NULL
+  AND ACT.UIDCUSTOMER = C.UIDCUSTOMER
+  AND NWK.ACCOUNTID = :account_id
+  AND SUBSTR(ACT.ACCOUNTID, INSTR(ACT.ACCOUNTID, '_', 1) + 1) LIKE SUBSTR(GL.INVOICENO, INSTR(GL.INVOICENO, '-', 1, 3) + 1, 1) || '%';
+
+} } } /* Closes else for PTP accounts */  new_invoice_record = (struct invoice*)malloc(sizeof(struct invoice));
+
+IF (invoice_list_head == INVNULLPTR) { invoice_list_head = invoice_list_tail = new_invoice_record;
+
+} ELSE { invoice_list_tail ->NEXT = new_invoice_record;
+
+invoice_list_tail = new_invoice_record;
+
+} invoice_no.arr[invoice_no.len] = '\0';
+
+invoice_type.arr[invoice_type.len] = '\0';
+
+inv_rev_no.arr[inv_rev_no.len] = '\0';
+
+customer_id.arr[customer_id.len] = '\0';
+
+csc_name.arr[csc_name.len] = '\0';
+
+customer_type_code.arr[customer_type_code.len] = '\0';
+
+customer_name.arr[customer_name.len] = '\0';
+
+srvc_to_dt.arr[srvc_to_dt.len] = '\0';
+
+invoice_dt.arr[invoice_dt.len] = '\0';
+
+last_pay_dt.arr[last_pay_dt.len] = '\0';
+
+pay_due_dt.arr[pay_due_dt.len] = '\0';
+
+glperiod.arr[glperiod.len] = '\0';
+
+/*RKObiaju previously null-terminated account_id
+	 if (account_id.arr[account_id.len] != '\0') {
+      account_id.arr[account_id.len] = '\0';
+	 }
+    / * firmness_type.arr[firmness_type.len] = '\0'; */  contract_no.arr[contract_no.len] = '\0';
+
+strcpy((char*)invoice_list_tail -> trans_type.arr, "Billed");
+
+strcpy((char*)invoice_list_tail -> revenue_type.arr, "Transmission");
+
+strcpy((char*)invoice_list_tail -> customer_name.arr, (char*)customer_name.arr);
+
+strcpy(temp_invoice_type.arr, (char*)customer_type_code.arr);
+
+strcat(temp_invoice_type.arr, (char*)" ");
+
+strcat(temp_invoice_type.arr, (char*)invoice_type.arr);
+
+strcpy((char*)invoice_list_tail -> invoice_type.arr, (char*)temp_invoice_type.arr);
+
+strcpy((char*)invoice_list_tail -> invoice_no.arr, (char*)invoice_no.arr);
+
+strcpy((char*)invoice_list_tail -> inv_rev_no.arr, (char*)inv_rev_no.arr);
+
+strcpy((char*)invoice_list_tail -> customer_id.arr, (char*)customer_id.arr);
+
+strcpy((char*)invoice_list_tail -> csc_name.arr, (char*)csc_name.arr);
+
+strcpy((char*)invoice_list_tail -> customer_type_code.arr, (char*)customer_type_code.arr);
+
+strcpy((char*)invoice_list_tail -> srvc_to_dt.arr, (char*)srvc_to_dt.arr);
+
+strcpy((char*)invoice_list_tail -> invoice_dt.arr, (char*)invoice_dt.arr);
+
+strcpy((char*)invoice_list_tail -> last_pay_dt.arr, (char*)last_pay_dt.arr);
+
+strcpy((char*)invoice_list_tail -> pay_due_dt.arr, (char*)pay_due_dt.arr);
+
+strcpy((char*)invoice_list_tail -> glperiod.arr, (char*)glperiod.arr);
+
+strcpy((char*)invoice_list_tail -> account_id.arr, (char*)account_id.arr);
+
+strcpy((char*)invoice_list_tail -> contract_no.arr, (char*)contract_no.arr);
+
+invoice_list_tail -> trans_type.len = strlen(invoice_list_tail -> trans_type.arr);
+
+invoice_list_tail -> revenue_type.len = strlen(invoice_list_tail -> revenue_type.arr);
+
+invoice_list_tail -> customer_name.len = strlen(invoice_list_tail -> customer_name.arr);
+
+invoice_list_tail -> invoice_no.len = strlen(invoice_list_tail -> invoice_no.arr);
+
+invoice_list_tail -> inv_rev_no.len = strlen(invoice_list_tail -> inv_rev_no.arr);
+
+invoice_list_tail -> customer_id.len = strlen(invoice_list_tail -> customer_id.arr);
+
+invoice_list_tail -> csc_name.len = strlen(invoice_list_tail -> csc_name.arr);
+
+invoice_list_tail -> customer_type_code.len = strlen(invoice_list_tail -> customer_type_code.arr);
+
+invoice_list_tail -> srvc_to_dt.len = strlen(invoice_list_tail -> srvc_to_dt.arr);
+
+invoice_list_tail -> invoice_dt.len = strlen(invoice_list_tail -> invoice_dt.arr);
+
+invoice_list_tail -> last_pay_dt.len = strlen(invoice_list_tail -> last_pay_dt.arr);
+
+invoice_list_tail -> pay_due_dt.len = strlen(invoice_list_tail -> pay_due_dt.arr);
+
+invoice_list_tail -> glperiod.len = strlen(invoice_list_tail -> glperiod.arr);
+
+invoice_list_tail -> account_id.len = strlen(invoice_list_tail -> account_id.arr);
+
+invoice_list_tail -> contract_no.len = strlen(invoice_list_tail -> contract_no.arr);
+
+invoice_list_tail -> product_list_head = NULLPTR;
+
+} invoice_list_tail ->NEXT = INVNULLPTR;
+
+IF (i_run_type == MONTH) { EXEC SQL CLOSE c_get_inv_1;
+
+} ELSE IF (i_run_type == DAILY) { EXEC SQL CLOSE c_get_inv_2;
+
+} /*for(loop_count = 0; loop_count < 3; loop_count++)
+  {
+     new_invoice_record = (struct invoice *)malloc(sizeof(struct invoice));
+
+     invoice_list_tail->next = new_invoice_record;
+     invoice_list_tail = new_invoice_record;
+
+     sprintf((char*)invoice_no.arr,"E99-99-99%d", loop_count+1);
+     sprintf((char*)inv_rev_no.arr,"9%d", loop_count+1);
+     sprintf((char*)customer_id.arr, "999%d", loop_count+1);
+     strcpy((char*)customer_type_code.arr, "TRANS");
+
+     strcpy((char*)product_type.arr, "");
+     strcpy((char*)amount.arr, "");
+
+     switch(loop_count)
+     {
+         case 0: strcpy((char*)csc_name.arr,"DUMMY INVOICE FOR GLEASON");
+
+EXEC SQL WHENEVER NOT FOUND DO true();
+EXEC SQL AT :pwrline_server_alias
+     SELECT TO_CHAR(VAL), 'TRANSMISSION_CREDIT_GLEASON'
+       INTO :amount, :product_type
+       FROM TBSLODE.METERVALUE
+      WHERE UIDACCOUNT = (SELECT UIDACCOUNT
+                            FROM TBSLODE.ACCOUNT
+                           WHERE ACCOUNTID = '5103_TC')
+        AND READDATE = LAST_DAY(ADD_MONTHS(TO_DATE(:gl_period,'MON-RR'),-1))
+        AND UIDBILLDETERMINANT = (SELECT UIDBILLDETERMINANT
+                                    FROM TBSLODE.BILLDETERMINANT
+                                   WHERE BILLDETERMNAME = 'TBS_TRANS_CREDIT_DOLLARS');
+
+
+
+                 if(sqlca.sqlcode == 1403)
+                 {
+                 }
+                 else
+                 {
+
+                   amount.arr[amount.len] = '\0';
+                   product_type.arr[product_type.len] = '\0';
+
+                   fprintf(rptFile,"\tPRODUCT: %-40s\tAMOUNT: %16s\t  QUANTITY: %-16s\t", product_type.arr, amount.arr);
+                   fflush(rptFile);
+                   printf("\tPRODUCT: %-40s\tAMOUNT: %16s\t  QUANTITY: %-16s\t", product_type.arr, amount.arr);
+                   fflush(stdout);
+
+EXEC SQL WHENEVER NOT FOUND DO true();
+EXEC SQL AT :pwrline_server_alias
+SELECT NVL(ENTITY,'00'), NVL(RESPONSIBLEORG,'00'),NVL(PERFORMINGORG,'00'),NVL(LOCATION,'00'),
+       NVL(NATURALACCOUNT,'00'),NVL(FERCACCOUNT,'00'),NVL(INTERCOMPANYFUTURE,'00'),NVL(REPORTINGCLASSIFICATION,'00'),
+       NVL(FUTURE2,'00'),DECODE(ACCOUNTINGFLAG,'INVOICED_AMOUNT','R','CHARGES_CREDITS','C','C'),NVL(GLPOSTDESC,'NA')
+INTO :entity,
+     :resp_org,
+     :perf_org,
+     :location,
+     :nat_acct,
+     :ferc_acct,
+     :intercomp,
+     :rpt_class,
+     :future2,
+     :acct_flag,
+     :line_description
+FROM TBSLODE.TVAGLACCOUNT
+      WHERE UIDPRODUCT = (SELECT UIDPRODUCT FROM TBSLODE.PRODUCT WHERE NAME = 'TRANSMISSION_CREDIT_GLEASON');
+
+                 }
+
+                 break;
+
+         case 1: strcpy((char*)csc_name.arr,"DUMMY INVOICE FOR BATESVILLE");
+
+EXEC SQL AT :pwrline_server_alias
+     SELECT TO_CHAR(VAL), 'TRANSMISSION_CREDIT_BATESVILLE'
+       INTO :amount, :product_type
+       FROM TBSLODE.METERVALUE
+      WHERE UIDACCOUNT = (SELECT UIDACCOUNT
+                            FROM TBSLODE.ACCOUNT
+                           WHERE ACCOUNTID = '5104_TC')
+        AND READDATE = LAST_DAY(ADD_MONTHS(TO_DATE(:gl_period,'MON-RR'),-1))
+        AND UIDBILLDETERMINANT = (SELECT UIDBILLDETERMINANT
+                                    FROM TBSLODE.BILLDETERMINANT
+                                   WHERE BILLDETERMNAME = 'TBS_TRANS_CREDIT_DOLLARS');
+
+                 if(sqlca.sqlcode == 1403)
+                 {
+                 }
+                 else
+                 {
+
+                   amount.arr[amount.len] = '\0';
+                   product_type.arr[product_type.len] = '\0';
+
+                   fprintf(rptFile,"\tPRODUCT: %-40s\tAMOUNT: %16s\t  QUANTITY: %-16s\t", product_type.arr, amount.arr);
+                   fflush(rptFile);
+                   printf("\tPRODUCT: %-40s\tAMOUNT: %16s\t  QUANTITY: %-16s\t", product_type.arr, amount.arr);
+                   fflush(stdout);
+
+EXEC SQL WHENEVER NOT FOUND DO true();
+EXEC SQL AT :pwrline_server_alias
+
+SELECT NVL(ENTITY,'00'), NVL(RESPONSIBLEORG,'00'),NVL(PERFORMINGORG,'00'),NVL(LOCATION,'00'),
+       NVL(NATURALACCOUNT,'00'),NVL(FERCACCOUNT,'00'),NVL(INTERCOMPANYFUTURE,'00'),NVL(REPORTINGCLASSIFICATION,'00'),
+       NVL(FUTURE2,'00'),DECODE(ACCOUNTINGFLAG,'INVOICED_AMOUNT','R','CHARGES_CREDITS','C','C'),NVL(GLPOSTDESC,'NA')
+INTO :entity,
+     :resp_org,
+     :perf_org,
+     :location,
+     :nat_acct,
+     :ferc_acct,
+     :intercomp,
+     :rpt_class,
+     :future2,
+     :acct_flag,
+     :line_description
+FROM TBSLODE.TVAGLACCOUNT
+      WHERE UIDPRODUCT = (SELECT UIDPRODUCT FROM TBSLODE.PRODUCT WHERE NAME = 'TRANSMISSION_CREDIT_BATESVILLE');
+
+                 }
+
+                 break;
+
+         case 2: strcpy((char*)csc_name.arr,"DUMMY INVOICE FOR ACCTS PAYA");
+
+EXEC SQL WHENEVER NOT FOUND DO true();
+EXEC SQL AT :pwrline_server_alias
+     SELECT TO_CHAR(NVL(SUM(VAL),0)), 'BILLED_ACCTS_PAYABLE'
+       INTO :amount, :product_type
+       FROM TBSLODE.METERVALUE
+      WHERE UIDACCOUNT IN (SELECT UIDACCOUNT
+                            FROM TBSLODE.ACCOUNT
+                           WHERE ACCOUNTID IN ('5104_TC', '5103_TC'))
+        AND READDATE = LAST_DAY(ADD_MONTHS(TO_DATE(:gl_period,'MON-RR'),-1))
+        AND UIDBILLDETERMINANT = (SELECT UIDBILLDETERMINANT
+                                    FROM TBSLODE.BILLDETERMINANT
+                                   WHERE BILLDETERMNAME = 'TBS_TRANS_CREDIT_DOLLARS');
+
+                 if(sqlca.sqlcode == 1403)
+                 {
+                 }
+                 else
+                 {
+
+                   amount.arr[amount.len] = '\0';
+                   product_type.arr[product_type.len] = '\0';
+
+                   fprintf(rptFile,"\tPRODUCT: %-40s\tAMOUNT: %16s\t  QUANTITY: %-16s\t", product_type.arr, amount.arr);
+                   fflush(rptFile);
+                   printf("\tPRODUCT: %-40s\tAMOUNT: %16s\t  QUANTITY: %-16s\t", product_type.arr, amount.arr);
+                   fflush(stdout);
+
+EXEC SQL WHENEVER NOT FOUND DO true();
+EXEC SQL AT :pwrline_server_alias
+SELECT NVL(ENTITY,'00'), NVL(RESPONSIBLEORG,'00'),NVL(PERFORMINGORG,'00'),NVL(LOCATION,'00'),
+       NVL(NATURALACCOUNT,'00'),NVL(FERCACCOUNT,'00'),NVL(INTERCOMPANYFUTURE,'00'),NVL(REPORTINGCLASSIFICATION,'00'),
+       NVL(FUTURE2,'00'),DECODE(ACCOUNTINGFLAG,'INVOICED_AMOUNT','R','CHARGES_CREDITS','C','C'),NVL(GLPOSTDESC,'NA')
+INTO :entity,
+     :resp_org,
+     :perf_org,
+     :location,
+     :nat_acct,
+     :ferc_acct,
+     :intercomp,
+     :rpt_class,
+     :future2,
+     :acct_flag,
+     :line_description
+FROM TBSLODE.TVAGLACCOUNT
+      WHERE UIDPRODUCT = (SELECT UIDPRODUCT FROM TBSLODE.PRODUCT WHERE NAME = 'BILLED_ACCTS_PAYABLE');
+                 }
+
+                 break;
+
+          case 3: strcpy((char*)csc_name.arr,"DUMMY INVOICE FOR RESALE");
+
+EXEC SQL WHENEVER NOT FOUND DO true();
+EXEC SQL AT :pwrline_server_alias
+     SELECT TO_CHAR(NVL(SUM(VAL),0)), 'TRANSMISSION_RESALE'
+       INTO :amount, :product_type
+       FROM TBSLODE.METERVALUE
+      WHERE UIDACCOUNT IN (SELECT UIDACCOUNT
+                            FROM TBSLODE.ACCOUNT
+                           WHERE ACCOUNTID IN ('5104_TC', '5103_TC'))
+        AND READDATE = LAST_DAY(ADD_MONTHS(TO_DATE(:gl_period,'MON-RR'),-1))
+        AND UIDBILLDETERMINANT = (SELECT UIDBILLDETERMINANT
+                                    FROM TBSLODE.BILLDETERMINANT
+                                   WHERE BILLDETERMNAME = 'TBS_TRANS_CREDIT_DOLLARS');
+
+                 if(sqlca.sqlcode == 1403)
+                 {
+                 }
+                 else
+                 {
+
+                   amount.arr[amount.len] = '\0';
+                   product_type.arr[product_type.len] = '\0';
+
+                   fprintf(rptFile,"\tPRODUCT: %-40s\tAMOUNT: %16s\t  QUANTITY: %-16s\t", product_type.arr, amount.arr);
+                   fflush(rptFile);
+                   printf("\tPRODUCT: %-40s\tAMOUNT: %16s\t  QUANTITY: %-16s\t", product_type.arr, amount.arr);
+                   fflush(stdout);
+
+EXEC SQL WHENEVER NOT FOUND DO true();
+EXEC SQL AT :pwrline_server_alias
+SELECT NVL(ENTITY,'00'), NVL(RESPONSIBLEORG,'00'),NVL(PERFORMINGORG,'00'),NVL(LOCATION,'00'),
+       NVL(NATURALACCOUNT,'00'),NVL(FERCACCOUNT,'00'),NVL(INTERCOMPANYFUTURE,'00'),NVL(REPORTINGCLASSIFICATION,'00'),
+       NVL(FUTURE2,'00'),DECODE(ACCOUNTINGFLAG,'INVOICED_AMOUNT','R','CHARGES_CREDITS','C','C'),NVL(GLPOSTDESC,'NA')
+INTO :entity,
+     :resp_org,
+     :perf_org,
+     :location,
+     :nat_acct,
+     :ferc_acct,
+     :intercomp,
+     :rpt_class,
+     :future2,
+     :acct_flag,
+     :line_description
+FROM TBSLODE.TVAGLACCOUNT
+      WHERE UIDPRODUCT = (SELECT UIDPRODUCT FROM TBSLODE.PRODUCT WHERE NAME = 'TRANSMISSION_RESALE');
+                 }
+
+                 break;
+
+    }
+
+
+     if(sqlca.sqlcode == 1403)
+     {
+
+
+         interfaceStatus = ERROR;
+
+         fprintf(rptFile,"\n***************************\n");
+         fprintf(rptFile, "GL account does not exist in TVAGLACCOUNT for %s %s %s\n", customer_type_code.arr, product_type.arr, csc_name.arr);
+         fprintf(rptFile, "Substituting values to continue\n");
+         fprintf(rptFile,"***************************\n");
+         fflush(rptFile);
+         printf("\n***************************\n");
+         printf( "GL account does not exist in TVAGLACCOUNT for %s %s %s\n", customer_type_code.arr, product_type.arr, csc_name.arr);
+         printf( "Substituting values to continue\n");
+         printf("***************************\n");
+         fflush(stdout);
+
+         strcpy(entity.arr,"00");
+         strcpy(resp_org.arr,"00");
+         strcpy(perf_org.arr,"00");
+         strcpy(location.arr,"00");
+         strcpy(nat_acct.arr,"00");
+         strcpy(ferc_acct.arr,"00");
+         strcpy(intercomp.arr,"00");
+         strcpy(rpt_class.arr,"00");
+         strcpy(future2.arr,"00");
+         strcpy(acct_flag.arr,"00");
+         strcpy(line_description.arr,"00");
+
+     }
+     else
+     {
+
+          entity.arr[entity.len] = '\0';
+          resp_org.arr[resp_org.len] = '\0';
+          perf_org.arr[perf_org.len] = '\0';
+          location.arr[location.len] = '\0';
+          nat_acct.arr[nat_acct.len] = '\0';
+          ferc_acct.arr[ferc_acct.len] = '\0';
+          intercomp.arr[intercomp.len] = '\0';
+          rpt_class.arr[rpt_class.len] = '\0';
+          future2.arr[future2.len] = '\0';
+          acct_flag.arr[acct_flag.len] = '\0';
+          line_description.arr[line_description.len] = '\0';
+
+     }
+
+     invoice_list_tail->product_list_head = NULLPTR;
+
+     new_product_record = (struct product *)malloc(sizeof(struct product));
+
+     if(new_product_record == NULLPTR)
+     {
+       fprintf(logFile, "Memory allocation failed from linked list...\n");
+       fflush(logFile);
+       exit(ERROR);
+     }
+
+     if(invoice_list_tail->product_list_head == NULLPTR)
+     {
+
+        invoice_list_tail->product_list_head = invoice_list_tail->product_list_tail = new_product_record;
+     }
+     else
+     {
+        invoice_list_tail->product_list_tail->next = new_product_record;
+        invoice_list_tail->product_list_tail = new_product_record;
+     }
+
+     init_product_struct(invoice_list_tail->product_list_tail);
+
+     strcpy((char*)invoice_list_tail->product_list_tail->entity.arr, (char*)entity.arr);
+     strcpy((char*)invoice_list_tail->product_list_tail->resp_org.arr, (char*)resp_org.arr);
+     strcpy((char*)invoice_list_tail->product_list_tail->perf_org.arr, (char*)perf_org.arr);
+     strcpy((char*)invoice_list_tail->product_list_tail->location.arr, (char*)location.arr);
+     strcpy((char*)invoice_list_tail->product_list_tail->nat_acct.arr, (char*)nat_acct.arr);
+     strcpy((char*)invoice_list_tail->product_list_tail->ferc_acct.arr, (char*)ferc_acct.arr);
+     strcpy((char*)invoice_list_tail->product_list_tail->intercomp.arr, (char*)intercomp.arr);
+     strcpy((char*)invoice_list_tail->product_list_tail->rpt_class.arr, (char*)rpt_class.arr);
+     strcpy((char*)invoice_list_tail->product_list_tail->future2.arr, (char*)future2.arr);
+     strcpy((char*)invoice_list_tail->product_list_tail->acct_flag.arr, (char*)acct_flag.arr);
+     strcpy((char*)invoice_list_tail->product_list_tail->line_description.arr, (char*)line_description.arr);
+     strcpy((char*)invoice_list_tail->product_list_tail->product_type.arr, (char*)product_type.arr);
+     strcpy((char*)invoice_list_tail->product_list_tail->amount.arr, (char*)amount.arr);
+
+     invoice_list_tail->product_list_tail->entity.len = strlen((char*) entity.arr);
+     invoice_list_tail->product_list_tail->resp_org.len = strlen((char*) resp_org.arr);
+     invoice_list_tail->product_list_tail->perf_org.len = strlen((char*) perf_org.arr);
+     invoice_list_tail->product_list_tail->location.len = strlen((char*) location.arr);
+     invoice_list_tail->product_list_tail->nat_acct.len = strlen((char*) nat_acct.arr);
+     invoice_list_tail->product_list_tail->ferc_acct.len = strlen((char*) ferc_acct.arr);
+     invoice_list_tail->product_list_tail->intercomp.len = strlen((char*) intercomp.arr);
+     invoice_list_tail->product_list_tail->rpt_class.len = strlen((char*) rpt_class.arr);
+     invoice_list_tail->product_list_tail->future2.len = strlen((char*) future2.arr);
+     invoice_list_tail->product_list_tail->acct_flag.len = strlen((char*) acct_flag.arr);
+     invoice_list_tail->product_list_tail->line_description.len = strlen((char*) line_description.arr);
+     invoice_list_tail->product_list_tail->product_type.len = strlen((char*) product_type.arr);
+     invoice_list_tail->product_list_tail->amount.len = strlen((char*) amount.arr);
+
+     invoice_list_tail->product_list_tail->next = NULLPTR;
+     invoice_list_tail->next = INVNULLPTR;
+
+  }*/  invoice_list_ptr = invoice_list_head;
+
+fprintf(rptFile, "\n");
+
+fflush(rptFile);
+
+printf("\n");
+
+fflush(STDOUT);
+
+WHILE (invoice_list_ptr != INVNULLPTR) { previous_products = FALSE;
+
+strcpy((char*)invoice_no.arr, (char*)invoice_list_ptr -> invoice_no.arr);
+
+strcpy((char*)inv_rev_no.arr, (char*)invoice_list_ptr -> inv_rev_no.arr);
+
+invoice_no.len = strlen((char*)invoice_no.arr);
+
+inv_rev_no.len = strlen((char*)inv_rev_no.arr);
+
+EXEC SQL AT :pwrline_server_alias
+SELECT COUNT(*) INTO :product_count
+FROM TBSLODE.INVPTPDETAILS
+WHERE INVOICENO = :invoice_no
+  AND INVOICEREVNO = :inv_rev_no;
+
+IF (product_count > 0) { EXEC SQL WHENEVER NOT FOUND DO BREAK;
+
+EXEC SQL AT :pwrline_server_alias DECLARE c_inv_products
+CURSOR
+FOR
+SELECT PRODUCTNAME,
+       TO_CHAR(SUM(RESERVEDMWAMT))
+FROM TBSLODE.INVPTPDETAILS
+WHERE INVOICENO = :invoice_no
+  AND INVOICEREVNO = :inv_rev_no
+GROUP BY PRODUCTNAME
+ORDER BY PRODUCTNAME DESC;
+
+EXEC SQL OPEN c_inv_products;
+
+WHILE (1) { EXEC SQL FETCH c_inv_products INTO :product_type,
+                                               :amount;
+
+product_type.arr[product_type.len] = '\0';
+
+amount.arr[amount.len] = '\0';
+
+IF (previous_products == FALSE) { invoice_list_ptr -> product_list_head = NULLPTR;
+
+previous_products = TRUE;
+
+} new_product_record = (struct product*)malloc(sizeof(struct product));
+
+IF (new_product_record == NULLPTR) { fprintf(LOGFILE, "Memory allocation failed from linked list...\n");
+
+fflush(LOGFILE);
+
+exit(ERROR);
+
+} IF (invoice_list_ptr -> product_list_head == NULLPTR) { invoice_list_ptr -> product_list_head = invoice_list_ptr -> product_list_tail = new_product_record;
+
+} ELSE { invoice_list_ptr -> product_list_tail ->NEXT = new_product_record;
+
+invoice_list_ptr -> product_list_tail = new_product_record;
+
+} EXEC SQL WHENEVER NOT FOUND DO true();
+
+EXEC SQL AT :pwrline_server_alias
+SELECT NVL(ENTITY, '00'),
+       NVL(RESPONSIBLEORG, '00'),
+       NVL(PERFORMINGORG, '00'),
+       NVL(LOCATION, '00'),
+       NVL(NATURALACCOUNT, '00'),
+       NVL(FERCACCOUNT, '00'),
+       NVL(INTERCOMPANYFUTURE, '00'),
+       NVL(REPORTINGCLASSIFICATION, '00'),
+       NVL(FUTURE2, '00'),
+       DECODE(ACCOUNTINGFLAG, 'INVOICED_AMOUNT', 'R', 'CHARGES_CREDITS', 'C', 'C'),
+       NVL(GLPOSTDESC, 'NA') INTO :entity,
+                                  :resp_org,
+                                  :perf_org,
+                                  :location,
+                                  :nat_acct,
+                                  :ferc_acct,
+                                  :intercomp,
+                                  :rpt_class,
+                                  :future2,
+                                  :acct_flag,
+                                  :line_description
+FROM TBSLODE.TVAGLACCOUNT
+WHERE UIDPRODUCT =
+    (SELECT UIDPRODUCT
+     FROM TBSLODE.PRODUCT
+     WHERE NAME = :product_type);
+
+IF (sqlca.sqlcode == 1403) { interfaceStatus = ERROR;
+
+fprintf(rptFile, "\n***************************\n");
+
+fprintf(rptFile, "GL account does not exist in TVAGLACCOUNT for %s %s %s\n", customer_type_code.arr, product_type.arr, csc_name.arr);
+
+fprintf(rptFile, "Substituting values to continue\n");
+
+fprintf(rptFile, "***************************\n");
+
+fflush(rptFile);
+
+IF (i_run_type == DAILY) { printf("\n***************************\n");
+
+printf("GL account does not exist in TVAGLACCOUNT for %s %s %s\n", customer_type_code.arr, product_type.arr, csc_name.arr);
+
+printf("Substituting values to continue\n");
+
+printf("***************************\n");
+
+fflush(STDOUT);
+
+} strcpy(entity.arr, "00");
+
+strcpy(resp_org.arr, "00");
+
+strcpy(perf_org.arr, "00");
+
+strcpy(location.arr, "00");
+
+strcpy(nat_acct.arr, "00");
+
+strcpy(ferc_acct.arr, "00");
+
+strcpy(intercomp.arr, "00");
+
+strcpy(rpt_class.arr, "00");
+
+strcpy(future2.arr, "00");
+
+strcpy(acct_flag.arr, "00");
+
+strcpy(line_description.arr, "00");
+
+} ELSE { entity.arr[entity.len] = '\0';
+
+resp_org.arr[resp_org.len] = '\0';
+
+perf_org.arr[perf_org.len] = '\0';
+
+location.arr[location.len] = '\0';
+
+nat_acct.arr[nat_acct.len] = '\0';
+
+ferc_acct.arr[ferc_acct.len] = '\0';
+
+intercomp.arr[intercomp.len] = '\0';
+
+rpt_class.arr[rpt_class.len] = '\0';
+
+future2.arr[future2.len] = '\0';
+
+acct_flag.arr[acct_flag.len] = '\0';
+
+line_description.arr[line_description.len] = '\0';
+
+} init_product_struct(invoice_list_ptr -> product_list_tail);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> entity.arr, (char*)entity.arr);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> resp_org.arr, (char*)resp_org.arr);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> perf_org.arr, (char*)perf_org.arr);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> location.arr, (char*)location.arr);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> nat_acct.arr, (char*)nat_acct.arr);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> ferc_acct.arr, (char*)ferc_acct.arr);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> intercomp.arr, (char*)intercomp.arr);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> rpt_class.arr, (char*)rpt_class.arr);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> future2.arr, (char*)future2.arr);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> acct_flag.arr, (char*)acct_flag.arr);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> line_description.arr, (char*)line_description.arr);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> product_type.arr, (char*)product_type.arr);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> amount.arr, (char*)amount.arr);
+
+invoice_list_ptr -> product_list_tail -> entity.len = strlen((char*)entity.arr);
+
+invoice_list_ptr -> product_list_tail -> resp_org.len = strlen((char*)resp_org.arr);
+
+invoice_list_ptr -> product_list_tail -> perf_org.len = strlen((char*)perf_org.arr);
+
+invoice_list_ptr -> product_list_tail -> location.len = strlen((char*)location.arr);
+
+invoice_list_ptr -> product_list_tail -> nat_acct.len = strlen((char*)nat_acct.arr);
+
+invoice_list_ptr -> product_list_tail -> ferc_acct.len = strlen((char*)ferc_acct.arr);
+
+invoice_list_ptr -> product_list_tail -> intercomp.len = strlen((char*)intercomp.arr);
+
+invoice_list_ptr -> product_list_tail -> rpt_class.len = strlen((char*)rpt_class.arr);
+
+invoice_list_ptr -> product_list_tail -> future2.len = strlen((char*)future2.arr);
+
+invoice_list_ptr -> product_list_tail -> acct_flag.len = strlen((char*)acct_flag.arr);
+
+invoice_list_ptr -> product_list_tail -> line_description.len = strlen((char*)line_description.arr);
+
+invoice_list_ptr -> product_list_tail -> product_type.len = strlen((char*)product_type.arr);
+
+invoice_list_ptr -> product_list_tail -> amount.len = strlen((char*)amount.arr);
+
+invoice_list_ptr -> product_list_tail ->NEXT = NULL;
+
+} EXEC SQL CLOSE c_inv_products;
+
+EXEC SQL AT :pwrline_server_alias
+SELECT NVL(SUM(RESERVEDMWAMT), 0),
+       'BILLED_ACCTS_RECEIVABLE' INTO :temp_amt1,
+                                      :product_type
+FROM TBSLODE.INVPTPDETAILS
+WHERE INVOICENO = :invoice_no
+  AND INVOICEREVNO = :inv_rev_no;
+
+IF (sqlca.sqlcode == 1403) { fprintf(rptFile, "\n\n***************************\n");
+
+fprintf(rptFile, "ERROR - NO DATA FOR BILLED_ACCTS_RECEIVABLE FROM INVPTPDETAILS TABLE.  EXITING.\n");
+
+fprintf(rptFile, "***************************\n");
+
+IF (i_run_type == DAILY) { printf("\n\n***************************\n");
+
+printf("ERROR - NO DATA FOR BILLED_ACCTS_RECEIVABLE FROM INVPTPDETAILS TABLE.  EXITING.\n");
+
+printf("***************************\n");
+
+fflush(STDOUT);
+
+fflush(rptFile);
+
+} interfaceStatus = ERROR;
+
+close_files();
+
+update_interface_tables();
+
+exit(ERROR);
+
+} product_type.arr[product_type.len] = '\0';
+
+sprintf(amount.arr, "%.2f", temp_amt1);
+
+EXEC SQL AT :pwrline_server_alias
+SELECT NVL(ENTITY, '00'),
+       NVL(RESPONSIBLEORG, '00'),
+       NVL(PERFORMINGORG, '00'),
+       NVL(LOCATION, '00'),
+       NVL(NATURALACCOUNT, '00'),
+       NVL(FERCACCOUNT, '00'),
+       NVL(INTERCOMPANYFUTURE, '00'),
+       NVL(REPORTINGCLASSIFICATION, '00'),
+       NVL(FUTURE2, '00'),
+       DECODE(ACCOUNTINGFLAG, 'INVOICED_AMOUNT', 'R', 'CHARGES_CREDITS', 'C', 'C'),
+       NVL(GLPOSTDESC, 'NA') INTO :entity,
+                                  :resp_org,
+                                  :perf_org,
+                                  :location,
+                                  :nat_acct,
+                                  :ferc_acct,
+                                  :intercomp,
+                                  :rpt_class,
+                                  :future2,
+                                  :acct_flag,
+                                  :line_description
+FROM TBSLODE.TVAGLACCOUNT
+WHERE UIDPRODUCT =
+    (SELECT UIDPRODUCT
+     FROM TBSLODE.PRODUCT
+     WHERE NAME = 'BILLED_ACCTS_RECEIVABLE');
+
+entity.arr[entity.len] = '\0';
+
+resp_org.arr[resp_org.len] = '\0';
+
+perf_org.arr[perf_org.len] = '\0';
+
+location.arr[location.len] = '\0';
+
+nat_acct.arr[nat_acct.len] = '\0';
+
+ferc_acct.arr[ferc_acct.len] = '\0';
+
+intercomp.arr[intercomp.len] = '\0';
+
+rpt_class.arr[rpt_class.len] = '\0';
+
+future2.arr[future2.len] = '\0';
+
+acct_flag.arr[acct_flag.len] = '\0';
+
+line_description.arr[line_description.len] = '\0';
+
+IF (previous_products == FALSE) { invoice_list_ptr -> product_list_head = NULLPTR;
+
+previous_products = TRUE;
+
+} new_product_record = (struct product*)malloc(sizeof(struct product));
+
+IF (new_product_record == NULLPTR) { fprintf(LOGFILE, "Memory allocation failed from linked list...\n");
+
+fflush(LOGFILE);
+
+exit(ERROR);
+
+} IF (invoice_list_ptr -> product_list_head == NULLPTR) { invoice_list_ptr -> product_list_head = invoice_list_ptr -> product_list_tail = new_product_record;
+
+} ELSE { invoice_list_ptr -> product_list_tail ->NEXT = new_product_record;
+
+invoice_list_ptr -> product_list_tail = new_product_record;
+
+} init_product_struct(invoice_list_ptr -> product_list_tail);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> entity.arr, (char*)entity.arr);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> resp_org.arr, (char*)resp_org.arr);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> perf_org.arr, (char*)perf_org.arr);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> location.arr, (char*)location.arr);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> nat_acct.arr, (char*)nat_acct.arr);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> ferc_acct.arr, (char*)ferc_acct.arr);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> intercomp.arr, (char*)intercomp.arr);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> rpt_class.arr, (char*)rpt_class.arr);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> future2.arr, (char*)future2.arr);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> acct_flag.arr, (char*)acct_flag.arr);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> line_description.arr, (char*)line_description.arr);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> product_type.arr, (char*)product_type.arr);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> amount.arr, (char*)amount.arr);
+
+invoice_list_ptr -> product_list_tail -> entity.len = strlen((char*)entity.arr);
+
+invoice_list_ptr -> product_list_tail -> resp_org.len = strlen((char*)resp_org.arr);
+
+invoice_list_ptr -> product_list_tail -> perf_org.len = strlen((char*)perf_org.arr);
+
+invoice_list_ptr -> product_list_tail -> location.len = strlen((char*)location.arr);
+
+invoice_list_ptr -> product_list_tail -> nat_acct.len = strlen((char*)nat_acct.arr);
+
+invoice_list_ptr -> product_list_tail -> ferc_acct.len = strlen((char*)ferc_acct.arr);
+
+invoice_list_ptr -> product_list_tail -> intercomp.len = strlen((char*)intercomp.arr);
+
+invoice_list_ptr -> product_list_tail -> rpt_class.len = strlen((char*)rpt_class.arr);
+
+invoice_list_ptr -> product_list_tail -> future2.len = strlen((char*)future2.arr);
+
+invoice_list_ptr -> product_list_tail -> acct_flag.len = strlen((char*)acct_flag.arr);
+
+invoice_list_ptr -> product_list_tail -> line_description.len = strlen((char*)line_description.arr);
+
+invoice_list_ptr -> product_list_tail -> product_type.len = strlen((char*)product_type.arr);
+
+invoice_list_ptr -> product_list_tail -> amount.len = strlen((char*)amount.arr);
+
+invoice_list_ptr -> product_list_tail ->NEXT = NULL;
+
+} EXEC SQL AT :pwrline_server_alias
+SELECT COUNT(*) INTO :product_count
+FROM TBSLODE.INVOTHERDETAILS
+WHERE INVOICENO = :invoice_no
+  AND INVOICEREVNO = :inv_rev_no;
+
+IF (product_count > 0) { EXEC SQL WHENEVER NOT FOUND DO BREAK;
+
+EXEC SQL AT :pwrline_server_alias DECLARE c_nwk_products
+CURSOR
+FOR
+SELECT PRODUCTNAME,
+       TO_CHAR(SUM(OTHERAMT))
+FROM TBSLODE.INVOTHERDETAILS
+WHERE INVOICENO = :invoice_no
+  AND INVOICEREVNO = :inv_rev_no
+GROUP BY PRODUCTNAME
+ORDER BY PRODUCTNAME DESC;
+
+EXEC SQL OPEN c_nwk_products;
+
+WHILE (1) { EXEC SQL FETCH c_nwk_products INTO :product_type,
+                                               :amount;
+
+product_type.arr[product_type.len] = '\0';
+
+amount.arr[amount.len] = '\0';
+
+IF (previous_products == FALSE) { invoice_list_ptr -> product_list_head = NULLPTR;
+
+previous_products = TRUE;
+
+} new_product_record = (struct product*)malloc(sizeof(struct product));
+
+IF (new_product_record == NULLPTR) { fprintf(LOGFILE, "Memory allocation failed from linked list...\n");
+
+fflush(LOGFILE);
+
+exit(ERROR);
+
+} IF (invoice_list_ptr -> product_list_head == NULLPTR) { invoice_list_ptr -> product_list_head = invoice_list_ptr -> product_list_tail = new_product_record;
+
+} ELSE { invoice_list_ptr -> product_list_tail ->NEXT = new_product_record;
+
+invoice_list_ptr -> product_list_tail = new_product_record;
+
+} EXEC SQL WHENEVER NOT FOUND DO true();
+
+EXEC SQL AT :pwrline_server_alias
+SELECT NVL(ENTITY, '00'),
+       NVL(RESPONSIBLEORG, '00'),
+       NVL(PERFORMINGORG, '00'),
+       NVL(LOCATION, '00'),
+       NVL(NATURALACCOUNT, '00'),
+       NVL(FERCACCOUNT, '00'),
+       NVL(INTERCOMPANYFUTURE, '00'),
+       NVL(REPORTINGCLASSIFICATION, '00'),
+       NVL(FUTURE2, '00'),
+       DECODE(ACCOUNTINGFLAG, 'INVOICED_AMOUNT', 'R', 'CHARGES_CREDITS', 'C', 'C'),
+       NVL(GLPOSTDESC, 'NA') INTO :entity,
+                                  :resp_org,
+                                  :perf_org,
+                                  :location,
+                                  :nat_acct,
+                                  :ferc_acct,
+                                  :intercomp,
+                                  :rpt_class,
+                                  :future2,
+                                  :acct_flag,
+                                  :line_description
+FROM TBSLODE.TVAGLACCOUNT
+WHERE UIDPRODUCT =
+    (SELECT UIDPRODUCT
+     FROM TBSLODE.PRODUCT
+     WHERE NAME = :product_type);
+
+IF (sqlca.sqlcode == 1403) { interfaceStatus = ERROR;
+
+fprintf(rptFile, "\n***************************\n");
+
+fprintf(rptFile, "GL account does not exist in TVAGLACCOUNT for %s %s %s\n", customer_type_code.arr, product_type.arr, csc_name.arr);
+
+fprintf(rptFile, "Substituting values to continue\n");
+
+fprintf(rptFile, "***************************\n");
+
+fflush(rptFile);
+
+IF (i_run_type == DAILY) { printf("\n***************************\n");
+
+printf("GL account does not exist in TVAGLACCOUNT for %s %s %s\n", customer_type_code.arr, product_type.arr, csc_name.arr);
+
+printf("Substituting values to continue\n");
+
+printf("***************************\n");
+
+fflush(STDOUT);
+
+} strcpy(entity.arr, "00");
+
+strcpy(resp_org.arr, "00");
+
+strcpy(perf_org.arr, "00");
+
+strcpy(location.arr, "00");
+
+strcpy(nat_acct.arr, "00");
+
+strcpy(ferc_acct.arr, "00");
+
+strcpy(intercomp.arr, "00");
+
+strcpy(rpt_class.arr, "00");
+
+strcpy(future2.arr, "00");
+
+strcpy(acct_flag.arr, "00");
+
+strcpy(line_description.arr, "00");
+
+} ELSE { entity.arr[entity.len] = '\0';
+
+resp_org.arr[resp_org.len] = '\0';
+
+perf_org.arr[perf_org.len] = '\0';
+
+location.arr[location.len] = '\0';
+
+nat_acct.arr[nat_acct.len] = '\0';
+
+ferc_acct.arr[ferc_acct.len] = '\0';
+
+intercomp.arr[intercomp.len] = '\0';
+
+rpt_class.arr[rpt_class.len] = '\0';
+
+future2.arr[future2.len] = '\0';
+
+acct_flag.arr[acct_flag.len] = '\0';
+
+line_description.arr[line_description.len] = '\0';
+
+} init_product_struct(invoice_list_ptr -> product_list_tail);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> entity.arr, (char*)entity.arr);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> resp_org.arr, (char*)resp_org.arr);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> perf_org.arr, (char*)perf_org.arr);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> location.arr, (char*)location.arr);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> nat_acct.arr, (char*)nat_acct.arr);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> ferc_acct.arr, (char*)ferc_acct.arr);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> intercomp.arr, (char*)intercomp.arr);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> rpt_class.arr, (char*)rpt_class.arr);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> future2.arr, (char*)future2.arr);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> acct_flag.arr, (char*)acct_flag.arr);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> line_description.arr, (char*)line_description.arr);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> product_type.arr, (char*)product_type.arr);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> amount.arr, (char*)amount.arr);
+
+invoice_list_ptr -> product_list_tail -> entity.len = strlen((char*)entity.arr);
+
+invoice_list_ptr -> product_list_tail -> resp_org.len = strlen((char*)resp_org.arr);
+
+invoice_list_ptr -> product_list_tail -> perf_org.len = strlen((char*)perf_org.arr);
+
+invoice_list_ptr -> product_list_tail -> location.len = strlen((char*)location.arr);
+
+invoice_list_ptr -> product_list_tail -> nat_acct.len = strlen((char*)nat_acct.arr);
+
+invoice_list_ptr -> product_list_tail -> ferc_acct.len = strlen((char*)ferc_acct.arr);
+
+invoice_list_ptr -> product_list_tail -> intercomp.len = strlen((char*)intercomp.arr);
+
+invoice_list_ptr -> product_list_tail -> rpt_class.len = strlen((char*)rpt_class.arr);
+
+invoice_list_ptr -> product_list_tail -> future2.len = strlen((char*)future2.arr);
+
+invoice_list_ptr -> product_list_tail -> acct_flag.len = strlen((char*)acct_flag.arr);
+
+invoice_list_ptr -> product_list_tail -> line_description.len = strlen((char*)line_description.arr);
+
+invoice_list_ptr -> product_list_tail -> product_type.len = strlen((char*)product_type.arr);
+
+invoice_list_ptr -> product_list_tail -> amount.len = strlen((char*)amount.arr);
+
+invoice_list_ptr -> product_list_tail ->NEXT = NULL;
+
+} EXEC SQL CLOSE c_nwk_products;
+
+EXEC SQL AT :pwrline_server_alias
+SELECT NVL(SUM(OTHERAMT), 0),
+       'BILLED_ACCTS_RECEIVABLE' INTO :temp_amt2,
+                                      :product_type
+FROM TBSLODE.INVOTHERDETAILS
+WHERE INVOICENO = :invoice_no
+  AND INVOICEREVNO = :inv_rev_no;
+
+IF (sqlca.sqlcode == 1403) { fprintf(rptFile, "\n\n***************************\n");
+
+fprintf(rptFile, "ERROR - NO DATA FOR BILLED_ACCTS_RECEIVABLE FROM INVOTHERDETAILS TABLE.  EXITING.\n");
+
+fprintf(rptFile, "***************************\n");
+
+IF (i_run_type == DAILY) { printf("\n\n***************************\n");
+
+printf("ERROR - NO DATA FOR BILLED_ACCTS_RECEIVABLE FROM INVOTHERDETAILS TABLE.  EXITING.\n");
+
+printf("***************************\n");
+
+fflush(STDOUT);
+
+fflush(rptFile);
+
+} interfaceStatus = ERROR;
+
+close_files();
+
+update_interface_tables();
+
+exit(ERROR);
+
+} product_type.arr[product_type.len] = '\0';
+
+sprintf(amount.arr, "%.2f", temp_amt2);
+
+EXEC SQL AT :pwrline_server_alias
+SELECT NVL(ENTITY, '00'),
+       NVL(RESPONSIBLEORG, '00'),
+       NVL(PERFORMINGORG, '00'),
+       NVL(LOCATION, '00'),
+       NVL(NATURALACCOUNT, '00'),
+       NVL(FERCACCOUNT, '00'),
+       NVL(INTERCOMPANYFUTURE, '00'),
+       NVL(REPORTINGCLASSIFICATION, '00'),
+       NVL(FUTURE2, '00'),
+       DECODE(ACCOUNTINGFLAG, 'INVOICED_AMOUNT', 'R', 'CHARGES_CREDITS', 'C', 'C'),
+       NVL(GLPOSTDESC, 'NA') INTO :entity,
+                                  :resp_org,
+                                  :perf_org,
+                                  :location,
+                                  :nat_acct,
+                                  :ferc_acct,
+                                  :intercomp,
+                                  :rpt_class,
+                                  :future2,
+                                  :acct_flag,
+                                  :line_description
+FROM TBSLODE.TVAGLACCOUNT
+WHERE UIDPRODUCT =
+    (SELECT UIDPRODUCT
+     FROM TBSLODE.PRODUCT
+     WHERE NAME = 'BILLED_ACCTS_RECEIVABLE');
+
+entity.arr[entity.len] = '\0';
+
+resp_org.arr[resp_org.len] = '\0';
+
+perf_org.arr[perf_org.len] = '\0';
+
+location.arr[location.len] = '\0';
+
+nat_acct.arr[nat_acct.len] = '\0';
+
+ferc_acct.arr[ferc_acct.len] = '\0';
+
+intercomp.arr[intercomp.len] = '\0';
+
+rpt_class.arr[rpt_class.len] = '\0';
+
+future2.arr[future2.len] = '\0';
+
+acct_flag.arr[acct_flag.len] = '\0';
+
+line_description.arr[line_description.len] = '\0';
+
+IF (previous_products == FALSE) { invoice_list_ptr -> product_list_head = NULLPTR;
+
+previous_products = TRUE;
+
+} new_product_record = (struct product*)malloc(sizeof(struct product));
+
+IF (new_product_record == NULLPTR) { fprintf(LOGFILE, "Memory allocation failed from linked list...\n");
+
+fflush(LOGFILE);
+
+exit(ERROR);
+
+} IF (invoice_list_ptr -> product_list_head == NULLPTR) { invoice_list_ptr -> product_list_head = invoice_list_ptr -> product_list_tail = new_product_record;
+
+} ELSE { invoice_list_ptr -> product_list_tail ->NEXT = new_product_record;
+
+invoice_list_ptr -> product_list_tail = new_product_record;
+
+} init_product_struct(invoice_list_ptr -> product_list_tail);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> entity.arr, (char*)entity.arr);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> resp_org.arr, (char*)resp_org.arr);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> perf_org.arr, (char*)perf_org.arr);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> location.arr, (char*)location.arr);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> nat_acct.arr, (char*)nat_acct.arr);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> ferc_acct.arr, (char*)ferc_acct.arr);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> intercomp.arr, (char*)intercomp.arr);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> rpt_class.arr, (char*)rpt_class.arr);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> future2.arr, (char*)future2.arr);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> acct_flag.arr, (char*)acct_flag.arr);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> line_description.arr, (char*)line_description.arr);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> product_type.arr, (char*)product_type.arr);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> amount.arr, (char*)amount.arr);
+
+invoice_list_ptr -> product_list_tail -> entity.len = strlen((char*)entity.arr);
+
+invoice_list_ptr -> product_list_tail -> resp_org.len = strlen((char*)resp_org.arr);
+
+invoice_list_ptr -> product_list_tail -> perf_org.len = strlen((char*)perf_org.arr);
+
+invoice_list_ptr -> product_list_tail -> location.len = strlen((char*)location.arr);
+
+invoice_list_ptr -> product_list_tail -> nat_acct.len = strlen((char*)nat_acct.arr);
+
+invoice_list_ptr -> product_list_tail -> ferc_acct.len = strlen((char*)ferc_acct.arr);
+
+invoice_list_ptr -> product_list_tail -> intercomp.len = strlen((char*)intercomp.arr);
+
+invoice_list_ptr -> product_list_tail -> rpt_class.len = strlen((char*)rpt_class.arr);
+
+invoice_list_ptr -> product_list_tail -> future2.len = strlen((char*)future2.arr);
+
+invoice_list_ptr -> product_list_tail -> acct_flag.len = strlen((char*)acct_flag.arr);
+
+invoice_list_ptr -> product_list_tail -> line_description.len = strlen((char*)line_description.arr);
+
+invoice_list_ptr -> product_list_tail -> product_type.len = strlen((char*)product_type.arr);
+
+invoice_list_ptr -> product_list_tail -> amount.len = strlen((char*)amount.arr);
+
+invoice_list_ptr -> product_list_tail ->NEXT = NULL;
+
+} EXEC SQL AT :pwrline_server_alias
+SELECT COUNT(*) INTO :product_count
+FROM TBSLODE.INVTBSDETAILS
+WHERE INVOICENO = :invoice_no
+  AND INVOICEREVNO = :inv_rev_no;
+
+IF (product_count > 0) { EXEC SQL WHENEVER NOT FOUND DO BREAK;
+
+EXEC SQL AT :pwrline_server_alias DECLARE c_det_products
+CURSOR
+FOR
+SELECT PRODUCTNAME,
+       TO_CHAR(SUM(MWAMT))
+FROM TBSLODE.INVTBSDETAILS
+WHERE INVOICENO = :invoice_no
+  AND INVOICEREVNO = :inv_rev_no
+GROUP BY PRODUCTNAME
+ORDER BY PRODUCTNAME DESC;
+
+EXEC SQL OPEN c_det_products;
+
+WHILE (1) { EXEC SQL FETCH c_det_products INTO :product_type,
+                                               :amount;
+
+product_type.arr[product_type.len] = '\0';
+
+amount.arr[amount.len] = '\0';
+
+IF (previous_products == FALSE) { invoice_list_ptr -> product_list_head = NULLPTR;
+
+previous_products = TRUE;
+
+} new_product_record = (struct product*)malloc(sizeof(struct product));
+
+IF (new_product_record == NULLPTR) { fprintf(LOGFILE, "Memory allocation failed from linked list...\n");
+
+fflush(LOGFILE);
+
+exit(ERROR);
+
+} IF (invoice_list_ptr -> product_list_head == NULLPTR) { invoice_list_ptr -> product_list_head = invoice_list_ptr -> product_list_tail = new_product_record;
+
+} ELSE { invoice_list_ptr -> product_list_tail ->NEXT = new_product_record;
+
+invoice_list_ptr -> product_list_tail = new_product_record;
+
+} EXEC SQL WHENEVER NOT FOUND DO true();
+
+EXEC SQL AT :pwrline_server_alias
+SELECT NVL(ENTITY, '00'),
+       NVL(RESPONSIBLEORG, '00'),
+       NVL(PERFORMINGORG, '00'),
+       NVL(LOCATION, '00'),
+       NVL(NATURALACCOUNT, '00'),
+       NVL(FERCACCOUNT, '00'),
+       NVL(INTERCOMPANYFUTURE, '00'),
+       NVL(REPORTINGCLASSIFICATION, '00'),
+       NVL(FUTURE2, '00'),
+       DECODE(ACCOUNTINGFLAG, 'INVOICED_AMOUNT', 'R', 'CHARGES_CREDITS', 'C', 'C'),
+       NVL(GLPOSTDESC, 'NA') INTO :entity,
+                                  :resp_org,
+                                  :perf_org,
+                                  :location,
+                                  :nat_acct,
+                                  :ferc_acct,
+                                  :intercomp,
+                                  :rpt_class,
+                                  :future2,
+                                  :acct_flag,
+                                  :line_description
+FROM TBSLODE.TVAGLACCOUNT
+WHERE UIDPRODUCT =
+    (SELECT UIDPRODUCT
+     FROM TBSLODE.PRODUCT
+     WHERE NAME = :product_type);
+
+IF (sqlca.sqlcode == 1403) { interfaceStatus = ERROR;
+
+fprintf(rptFile, "\n***************************\n");
+
+fprintf(rptFile, "GL account does not exist in TVAGLACCOUNT for %s %s %s\n", customer_type_code.arr, product_type.arr, csc_name.arr);
+
+fprintf(rptFile, "Substituting values to continue\n");
+
+fprintf(rptFile, "***************************\n");
+
+fflush(rptFile);
+
+IF (i_run_type == DAILY) { printf("\n***************************\n");
+
+printf("GL account does not exist in TVAGLACCOUNT for %s %s %s\n", customer_type_code.arr, product_type.arr, csc_name.arr);
+
+printf("Substituting values to continue\n");
+
+printf("***************************\n");
+
+fflush(STDOUT);
+
+} strcpy(entity.arr, "00");
+
+strcpy(resp_org.arr, "00");
+
+strcpy(perf_org.arr, "00");
+
+strcpy(location.arr, "00");
+
+strcpy(nat_acct.arr, "00");
+
+strcpy(ferc_acct.arr, "00");
+
+strcpy(intercomp.arr, "00");
+
+strcpy(rpt_class.arr, "00");
+
+strcpy(future2.arr, "00");
+
+strcpy(acct_flag.arr, "00");
+
+strcpy(line_description.arr, "00");
+
+} ELSE { entity.arr[entity.len] = '\0';
+
+resp_org.arr[resp_org.len] = '\0';
+
+perf_org.arr[perf_org.len] = '\0';
+
+location.arr[location.len] = '\0';
+
+nat_acct.arr[nat_acct.len] = '\0';
+
+ferc_acct.arr[ferc_acct.len] = '\0';
+
+intercomp.arr[intercomp.len] = '\0';
+
+rpt_class.arr[rpt_class.len] = '\0';
+
+future2.arr[future2.len] = '\0';
+
+acct_flag.arr[acct_flag.len] = '\0';
+
+line_description.arr[line_description.len] = '\0';
+
+} init_product_struct(invoice_list_ptr -> product_list_tail);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> entity.arr, (char*)entity.arr);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> resp_org.arr, (char*)resp_org.arr);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> perf_org.arr, (char*)perf_org.arr);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> location.arr, (char*)location.arr);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> nat_acct.arr, (char*)nat_acct.arr);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> ferc_acct.arr, (char*)ferc_acct.arr);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> intercomp.arr, (char*)intercomp.arr);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> rpt_class.arr, (char*)rpt_class.arr);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> future2.arr, (char*)future2.arr);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> acct_flag.arr, (char*)acct_flag.arr);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> line_description.arr, (char*)line_description.arr);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> product_type.arr, (char*)product_type.arr);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> amount.arr, (char*)amount.arr);
+
+invoice_list_ptr -> product_list_tail -> entity.len = strlen((char*)entity.arr);
+
+invoice_list_ptr -> product_list_tail -> resp_org.len = strlen((char*)resp_org.arr);
+
+invoice_list_ptr -> product_list_tail -> perf_org.len = strlen((char*)perf_org.arr);
+
+invoice_list_ptr -> product_list_tail -> location.len = strlen((char*)location.arr);
+
+invoice_list_ptr -> product_list_tail -> nat_acct.len = strlen((char*)nat_acct.arr);
+
+invoice_list_ptr -> product_list_tail -> ferc_acct.len = strlen((char*)ferc_acct.arr);
+
+invoice_list_ptr -> product_list_tail -> intercomp.len = strlen((char*)intercomp.arr);
+
+invoice_list_ptr -> product_list_tail -> rpt_class.len = strlen((char*)rpt_class.arr);
+
+invoice_list_ptr -> product_list_tail -> future2.len = strlen((char*)future2.arr);
+
+invoice_list_ptr -> product_list_tail -> acct_flag.len = strlen((char*)acct_flag.arr);
+
+invoice_list_ptr -> product_list_tail -> line_description.len = strlen((char*)line_description.arr);
+
+invoice_list_ptr -> product_list_tail -> product_type.len = strlen((char*)product_type.arr);
+
+invoice_list_ptr -> product_list_tail -> amount.len = strlen((char*)amount.arr);
+
+invoice_list_ptr -> product_list_tail ->NEXT = NULL;
+
+} EXEC SQL CLOSE c_det_products;
+
+EXEC SQL AT :pwrline_server_alias
+SELECT NVL(SUM(MWAMT), 0),
+       'BILLED_ACCTS_RECEIVABLE' INTO :temp_amt3,
+                                      :product_type
+FROM TBSLODE.INVTBSDETAILS
+WHERE INVOICENO = :invoice_no
+  AND INVOICEREVNO = :inv_rev_no;
+
+IF (sqlca.sqlcode == 1403) { fprintf(rptFile, "\n\n***************************\n");
+
+fprintf(rptFile, "ERROR - NO DATA FOR TRANSMISSION FROM INVTBSDETAILS TABLE.  EXITING.\n");
+
+fprintf(rptFile, "***************************\n");
+
+IF (i_run_type == DAILY) { printf("\n\n***************************\n");
+
+printf("ERROR - NO DATA FOR TRANSMISSION FROM INVTBSDETAILS TABLE.  EXITING.\n");
+
+printf("***************************\n");
+
+fflush(STDOUT);
+
+fflush(rptFile);
+
+} interfaceStatus = ERROR;
+
+close_files();
+
+update_interface_tables();
+
+exit(ERROR);
+
+} product_type.arr[product_type.len] = '\0';
+
+sprintf(amount.arr, "%.2f", temp_amt3);
+
+EXEC SQL AT :pwrline_server_alias
+SELECT NVL(ENTITY, '00'),
+       NVL(RESPONSIBLEORG, '00'),
+       NVL(PERFORMINGORG, '00'),
+       NVL(LOCATION, '00'),
+       NVL(NATURALACCOUNT, '00'),
+       NVL(FERCACCOUNT, '00'),
+       NVL(INTERCOMPANYFUTURE, '00'),
+       NVL(REPORTINGCLASSIFICATION, '00'),
+       NVL(FUTURE2, '00'),
+       DECODE(ACCOUNTINGFLAG, 'INVOICED_AMOUNT', 'R', 'CHARGES_CREDITS', 'C', 'C'),
+       NVL(GLPOSTDESC, 'NA') INTO :entity,
+                                  :resp_org,
+                                  :perf_org,
+                                  :location,
+                                  :nat_acct,
+                                  :ferc_acct,
+                                  :intercomp,
+                                  :rpt_class,
+                                  :future2,
+                                  :acct_flag,
+                                  :line_description
+FROM TBSLODE.TVAGLACCOUNT
+WHERE UIDPRODUCT =
+    (SELECT UIDPRODUCT
+     FROM TBSLODE.PRODUCT
+     WHERE NAME = 'BILLED_ACCTS_RECEIVABLE');
+
+entity.arr[entity.len] = '\0';
+
+resp_org.arr[resp_org.len] = '\0';
+
+perf_org.arr[perf_org.len] = '\0';
+
+location.arr[location.len] = '\0';
+
+nat_acct.arr[nat_acct.len] = '\0';
+
+ferc_acct.arr[ferc_acct.len] = '\0';
+
+intercomp.arr[intercomp.len] = '\0';
+
+rpt_class.arr[rpt_class.len] = '\0';
+
+future2.arr[future2.len] = '\0';
+
+acct_flag.arr[acct_flag.len] = '\0';
+
+line_description.arr[line_description.len] = '\0';
+
+IF (previous_products == FALSE) { invoice_list_ptr -> product_list_head = NULLPTR;
+
+previous_products = TRUE;
+
+} new_product_record = (struct product*)malloc(sizeof(struct product));
+
+IF (new_product_record == NULLPTR) { fprintf(LOGFILE, "Memory allocation failed from linked list...\n");
+
+fflush(LOGFILE);
+
+exit(ERROR);
+
+} IF (invoice_list_ptr -> product_list_head == NULLPTR) { invoice_list_ptr -> product_list_head = invoice_list_ptr -> product_list_tail = new_product_record;
+
+} ELSE { invoice_list_ptr -> product_list_tail ->NEXT = new_product_record;
+
+invoice_list_ptr -> product_list_tail = new_product_record;
+
+} init_product_struct(invoice_list_ptr -> product_list_tail);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> entity.arr, (char*)entity.arr);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> resp_org.arr, (char*)resp_org.arr);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> perf_org.arr, (char*)perf_org.arr);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> location.arr, (char*)location.arr);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> nat_acct.arr, (char*)nat_acct.arr);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> ferc_acct.arr, (char*)ferc_acct.arr);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> intercomp.arr, (char*)intercomp.arr);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> rpt_class.arr, (char*)rpt_class.arr);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> future2.arr, (char*)future2.arr);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> acct_flag.arr, (char*)acct_flag.arr);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> line_description.arr, (char*)line_description.arr);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> product_type.arr, (char*)product_type.arr);
+
+strcpy((char*)invoice_list_ptr -> product_list_tail -> amount.arr, (char*)amount.arr);
+
+invoice_list_ptr -> product_list_tail -> entity.len = strlen((char*)entity.arr);
+
+invoice_list_ptr -> product_list_tail -> resp_org.len = strlen((char*)resp_org.arr);
+
+invoice_list_ptr -> product_list_tail -> perf_org.len = strlen((char*)perf_org.arr);
+
+invoice_list_ptr -> product_list_tail -> location.len = strlen((char*)location.arr);
+
+invoice_list_ptr -> product_list_tail -> nat_acct.len = strlen((char*)nat_acct.arr);
+
+invoice_list_ptr -> product_list_tail -> ferc_acct.len = strlen((char*)ferc_acct.arr);
+
+invoice_list_ptr -> product_list_tail -> intercomp.len = strlen((char*)intercomp.arr);
+
+invoice_list_ptr -> product_list_tail -> rpt_class.len = strlen((char*)rpt_class.arr);
+
+invoice_list_ptr -> product_list_tail -> future2.len = strlen((char*)future2.arr);
+
+invoice_list_ptr -> product_list_tail -> acct_flag.len = strlen((char*)acct_flag.arr);
+
+invoice_list_ptr -> product_list_tail -> line_description.len = strlen((char*)line_description.arr);
+
+invoice_list_ptr -> product_list_tail -> product_type.len = strlen((char*)product_type.arr);
+
+invoice_list_ptr -> product_list_tail -> amount.len = strlen((char*)amount.arr);
+
+invoice_list_ptr -> product_list_tail ->NEXT = NULL;
+
+} IF (previous_products == TRUE) { invoice_list_ptr -> product_list_tail ->NEXT = NULLPTR;
+
+} invoice_list_ptr = invoice_list_ptr ->NEXT;
+
+} invoice_list_ptr = invoice_list_head;
+
+/*while(invoice_list_ptr != INVNULLPTR)
+  {
+
+    fprintf(rptFile,"___________________________________________________________________\n\n");
+    fprintf(rptFile,"INVOICE: %s   REVISION: %s\n", invoice_list_ptr->invoice_no.arr, invoice_list_ptr->inv_rev_no.arr);
+    fflush(rptFile);
+
+    if(i_run_type == DAILY)
+    {
+      printf("___________________________________________________________________\n\n");
+      printf("INVOICE: %s   REVISION: %s\n", invoice_list_ptr->invoice_no.arr, invoice_list_ptr->inv_rev_no.arr);
+      fflush(stdout);
+    }
+
+     product_list_ptr = invoice_list_ptr->product_list_head;
+
+     while(product_list_ptr != NULLPTR)
+     {
+
+          fprintf(rptFile,"\tPRODUCT: %-40s\tAMOUNT: %16s\n", product_list_ptr->product_type.arr, product_list_ptr->amount.arr);
+          fflush(rptFile);
+
+          if(i_run_type == DAILY)
+          {
+             printf("\tPRODUCT: %-40s\tAMOUNT: %16s\n", product_list_ptr->product_type.arr, product_list_ptr->amount.arr);
+             fflush(stdout);
+          }
+
+        product_list_ptr = product_list_ptr->next;
+
+     }
+
+     fprintf(rptFile,"\n\n");
+     fflush(rptFile);
+
+     if(i_run_type == DAILY)
+     {
+       printf("\n\n");
+       fflush(stdout);
+     }
+
+
+     invoice_list_ptr = invoice_list_ptr->next;
+
+  }*/ } void group_21F_products() { struct product * new_product_record;
+
+struct invoice * invoice_list_ptr;
+
+struct product * old_product_list_ptr;
+
+struct product * product_list_ptr;
+
+int first_product;
+
+int product_exist;
+
+DOUBLE temp_debits;
+
+DOUBLE temp_credits;
+
+DOUBLE debits;
+
+DOUBLE credits;
+
+DOUBLE temp_amount;
+
+char SIGN;
+
+EXEC SQL WHENEVER
+SQLERROR DO sql_error(ERROR, "ERROR GROUP 21F PRODUCTS:");
+
+first_product = TRUE;
+
+product_exist = FALSE;
+
+temp_debits = 0;
+
+temp_credits = 0;
+
+debits = 0;
+
+credits = 0;
+
+temp_amount = 0;
+
+invoice_list_ptr = invoice_list_head;
+
+WHILE (invoice_list_ptr != INVNULLPTR) { old_product_list_ptr = invoice_list_ptr -> product_list_head;
+
+WHILE (old_product_list_ptr != NULLPTR) { IF ((first_product == TRUE) && (strcmp((char*)old_product_list_ptr -> product_type.arr, "") != 0)) { new_product_record = (struct product*)malloc(sizeof(struct product));
+
+new_product_record ->NEXT = NULLPTR;
+
+copy_product_struct(new_product_record, old_product_list_ptr);
+
+SIGN = old_product_list_ptr -> amount.arr[0];
+
+sscanf((char*)old_product_list_ptr -> amount.arr, "%lf", & temp_amount);
+
+temp_amount = fabs(temp_amount);
+
+sprintf(old_product_list_ptr -> amount.arr, "%.2lf", temp_amount);
+
+IF ((strcmp((char*)old_product_list_ptr -> product_type.arr, "BILLED_ACCTS_RECEIVABLE") == 0) || (strcmp((char*)old_product_list_ptr -> product_type.arr, "TRANSMISSION_CREDIT_GLEASON") == 0) || (strcmp((char*)old_product_list_ptr -> product_type.arr, "TRANSMISSION_CREDIT_BATESVILLE") == 0)) { IF (SIGN != '-') { new_product_record -> detail_line.dbl_debit + = temp_amount;
+
+sprintf((char*)new_product_record -> detail_line.debit.arr, "%+017.2lf", new_product_record -> detail_line.dbl_debit);
+
+strcpy(old_product_list_ptr -> cre_or_deb.arr, "D");
+
+} ELSE { new_product_record -> detail_line.dbl_credit + = temp_amount;
+
+sprintf((char*)new_product_record -> detail_line.credit.arr, "%+017.2lf", new_product_record -> detail_line.dbl_credit);
+
+strcpy(old_product_list_ptr -> cre_or_deb.arr, "C");
+
+} } ELSE { IF (SIGN != '-') { new_product_record -> detail_line.dbl_credit + = temp_amount;
+
+sprintf((char*)new_product_record -> detail_line.credit.arr, "%+017.2lf", new_product_record -> detail_line.dbl_credit);
+
+strcpy(old_product_list_ptr -> cre_or_deb.arr, "C");
+
+} ELSE { new_product_record -> detail_line.dbl_debit + = temp_amount;
+
+sprintf((char*)new_product_record -> detail_line.debit.arr, "%+017.2lf", new_product_record -> detail_line.dbl_debit);
+
+strcpy(old_product_list_ptr -> cre_or_deb.arr, "D");
+
+} } product_feeder_head = product_feeder_tail = new_product_record;
+
+first_product = FALSE;
+
+} ELSE IF ((first_product == FALSE) && (strcmp((char*)old_product_list_ptr -> product_type.arr, "") != 0)) { product_list_ptr = product_feeder_head;
+
+WHILE (product_list_ptr != NULLPTR) { IF ((strcmp((char*)old_product_list_ptr -> ferc_product.arr, (char*)product_list_ptr -> ferc_product.arr)) == 0) { SIGN = old_product_list_ptr -> amount.arr[0];
+
+sscanf((char*)old_product_list_ptr -> amount.arr, "%lf", & temp_amount);
+
+temp_amount = fabs(temp_amount);
+
+sprintf(old_product_list_ptr -> amount.arr, "%.2lf", temp_amount);
+
+IF ((strcmp((char*)old_product_list_ptr -> product_type.arr, "BILLED_ACCTS_RECEIVABLE") == 0) || (strcmp((char*)old_product_list_ptr -> product_type.arr, "TRANSMISSION_CREDIT_GLEASON") == 0) || (strcmp((char*)old_product_list_ptr -> product_type.arr, "TRANSMISSION_CREDIT_BATESVILLE") == 0)) { IF (SIGN != '-') { product_list_ptr -> detail_line.dbl_debit + = temp_amount;
+
+sprintf((char*)product_list_ptr -> detail_line.debit.arr, "%+017.2lf", product_list_ptr -> detail_line.dbl_debit);
+
+strcpy(old_product_list_ptr -> cre_or_deb.arr, "D");
+
+} ELSE { product_list_ptr -> detail_line.dbl_credit + = temp_amount;
+
+sprintf((char*)product_list_ptr -> detail_line.credit.arr, "%+017.2lf", product_list_ptr -> detail_line.dbl_credit);
+
+strcpy(old_product_list_ptr -> cre_or_deb.arr, "C");
+
+} } ELSE { IF (SIGN != '-') { product_list_ptr -> detail_line.dbl_credit + = temp_amount;
+
+sprintf((char*)product_list_ptr -> detail_line.credit.arr, "%+017.2lf", product_list_ptr -> detail_line.dbl_credit);
+
+strcpy(old_product_list_ptr -> cre_or_deb.arr, "C");
+
+} ELSE { product_list_ptr -> detail_line.dbl_debit + = temp_amount;
+
+sprintf((char*)product_list_ptr -> detail_line.debit.arr, "%+017.2lf", product_list_ptr -> detail_line.dbl_debit);
+
+strcpy(old_product_list_ptr -> cre_or_deb.arr, "D");
+
+} } product_list_ptr = product_feeder_tail;
+
+product_exist = TRUE;
+
+} ELSE { product_exist = FALSE;
+
+} product_list_ptr = product_list_ptr ->NEXT;
+
+} IF ((product_exist == FALSE) && (strcmp((char*)old_product_list_ptr -> product_type.arr, "") != 0)) { new_product_record = (struct product*)malloc(sizeof(struct product));
+
+copy_product_struct(new_product_record, old_product_list_ptr);
+
+SIGN = old_product_list_ptr -> amount.arr[0];
+
+sscanf((char*)old_product_list_ptr -> amount.arr, "%lf", & temp_amount);
+
+temp_amount = fabs(temp_amount);
+
+sprintf(old_product_list_ptr -> amount.arr, "%.2lf", temp_amount);
+
+IF ((strcmp((char*)old_product_list_ptr -> product_type.arr, "BILLED_ACCTS_RECEIVABLE") == 0) || (strcmp((char*)old_product_list_ptr -> product_type.arr, "TRANSMISSION_CREDIT_GLEASON") == 0) || (strcmp((char*)old_product_list_ptr -> product_type.arr, "TRANSMISSION_CREDIT_BATESVILLE") == 0)) { IF (SIGN != '-') { new_product_record -> detail_line.dbl_debit + = temp_amount;
+
+sprintf((char*)new_product_record -> detail_line.debit.arr, "%+017.2lf", new_product_record -> detail_line.dbl_debit);
+
+strcpy(old_product_list_ptr -> cre_or_deb.arr, "D");
+
+} ELSE { new_product_record -> detail_line.dbl_credit + = temp_amount;
+
+sprintf((char*)new_product_record -> detail_line.credit.arr, "%+017.2lf", new_product_record -> detail_line.dbl_credit);
+
+strcpy(old_product_list_ptr -> cre_or_deb.arr, "C");
+
+} } ELSE { IF (SIGN != '-') { new_product_record -> detail_line.dbl_credit + = temp_amount;
+
+sprintf((char*)new_product_record -> detail_line.credit.arr, "%+017.2lf", new_product_record -> detail_line.dbl_credit);
+
+strcpy(old_product_list_ptr -> cre_or_deb.arr, "C");
+
+} ELSE { new_product_record -> detail_line.dbl_debit + = temp_amount;
+
+sprintf((char*)new_product_record -> detail_line.debit.arr, "%+017.2lf", new_product_record -> detail_line.dbl_debit);
+
+strcpy(old_product_list_ptr -> cre_or_deb.arr, "D");
+
+} } new_product_record ->NEXT = NULLPTR;
+
+product_feeder_tail ->NEXT = new_product_record;
+
+product_feeder_tail = new_product_record;
+
+} } old_product_list_ptr = old_product_list_ptr ->NEXT;
+
+} invoice_list_ptr = invoice_list_ptr ->NEXT;
+
+} temp_amount = 0;
+
+} void validate_gl_accounts() { struct invoice * invoice_list_ptr;
+
+struct product * product_list_ptr;
+
+int invalid_sc_error;
+
+int return_code;
+
+varchar entity[3];
+
+varchar resp_org[5];
+
+varchar perf_org[5];
+
+varchar LOCATION[6];
+
+varchar nat_acct[6];
+
+varchar ferc_acct[7];
+
+varchar intercomp[3];
+
+varchar rpt_class[7];
+
+varchar future2[7];
+
+varchar P_entity[10];
+
+varchar P_responsible_organization[10];
+
+varchar P_performing_organization[10];
+
+varchar P_location[10];
+
+varchar P_natural_account[10];
+
+varchar P_ferc_account[10];
+
+varchar P_intercompany[10];
+
+varchar P_rpt_class[10];
+
+varchar P_future_use_2[10];
+
+varchar P_effective_date[20];
+
+int P_code_combination_id;
+
+varchar P_error_code[51];
+
+varchar P_error_message[541];
+
+short P_code_combination_id_ind;
+
+short P_error_code_ind;
+
+short P_error_message_ind;
+
+varchar line_description[240];
+
+varchar acct_flag[20];
+
+varchar temp_description[240];
+
+varchar product_type[200];
+
+varchar prod_type_parent[200];
+
+varchar product_group[200];
+
+varchar trans_dt[15];
+
+varchar feeder_acctg_per[9];
+
+varchar open_acctg_period[8];
+
+EXEC SQL WHENEVER
+SQLERROR DO sql_error(ERROR, "ERROR VALIDATING GL ACCOUNTS:");
+
+fprintf(rptFile, "\n\n*************************************************************************************\n");
+
+fprintf(rptFile, "Validating gl accounts for the accounting period...");
+
+fprintf(rptFile, "\n*************************************************************************************\n\n\n");
+
+fflush(rptFile);
+
+IF (i_run_type == DAILY) { printf("\n\n*************************************************************************************\n");
+
+printf("Validating gl accounts for the accounting period...");
+
+printf("\n*************************************************************************************\n\n\n");
+
+fflush(STDOUT);
+
+} invalid_sc_error = FALSE;
+
+invoice_list_ptr = invoice_list_head;
+
+WHILE (invoice_list_ptr != INVNULLPTR) { #if 0 // BDI_I_002,
+                                             eFMS interface discontinued if(i_run_type == DAILY) { int period_count;
+
+varchar glper[20];
+
+strcpy(glper.arr, invoice_list_ptr -> glperiod.arr);
+
+glper.len = strlen(glper.arr);
+
+/* BDI_I_002, eFMS interface discontinued
+EXEC SQL AT :gl_server_alias
+SELECT COUNT(*)
+INTO :period_count
+FROM APPS.TVGB_OPEN_GL_PERIODS
+WHERE PERIOD_STATUS = 'Open'
+AND  PERIOD_NAME = TO_CHAR(TO_DATE(:glper,'MON-RR'),'MON-YYYY');
+       */  if(period_count == 0) { interfaceStatus = ERROR;
+
+fprintf(rptFile, "***GL PERIOD %s IS NOT OPEN FOR POSTING***\n", invoice_list_ptr -> glperiod.arr);
+
+fflush(rptFile);
+
+printf("***GL PERIOD %s IS NOT OPEN FOR POSTING***\n", invoice_list_ptr -> glperiod.arr);
+
+fflush(STDOUT);
+
+} } #endif // 0 : BDI_I_002,
+                  eFMS interface discontinued product_list_ptr = invoice_list_ptr -> product_list_head;
+
+WHILE (product_list_ptr != NULLPTR) { strcpy(product_type.arr, product_list_ptr -> product_type.arr);
+
+product_type.len = strlen(product_type.arr);
+
+sprintf(product_list_ptr -> ferc_product.arr, "%s%s", product_list_ptr -> ferc_acct.arr, product_list_ptr -> product_type.arr);
+
+EXEC SQL WHENEVER NOT FOUND DO true();
+
+EXEC SQL AT :pwrline_server_alias
+SELECT PRODUCT_GROUP_DESC,
+       PARENT_PRODUCT_TYPE_DESC INTO :product_group,
+                                     :prod_type_parent
+FROM TBSLODE.REVENUE_PRODUCT_HIERARCHY
+WHERE PRODUCT_TYPE_DESC = :product_type;
+
+product_group.arr[product_group.len] = '\0';
+
+prod_type_parent.arr[prod_type_parent.len] = '\0';
+
+strcpy((char*)product_list_ptr -> product_group.arr, (char*)product_group.arr);
+
+strcpy((char*)product_list_ptr -> product_type_parent.arr, (char*)prod_type_parent.arr);
+
+IF (strcmp((char*)product_list_ptr -> amount.arr, "0") != 0) { char temp_amount[40];
+
+strcpy(temp_amount, format_currency(atof((char*)product_list_ptr -> amount.arr)));
+
+strcpy(trans_dt.arr, invoice_list_ptr -> invoice_dt.arr);
+
+trans_dt.len = strlen(trans_dt.arr);
+
+EXEC SQL AT :pwrline_server_alias
+SELECT TO_CHAR(TO_DATE(:trans_dt, 'MM/DD/RR'), 'DD-MON-YYYY') INTO :P_effective_date
+FROM DUAL;
+
+P_effective_date.arr[P_effective_date.len] = '\0';
+
+strcpy(P_entity.arr, product_list_ptr -> entity.arr);
+
+strcpy(P_responsible_organization.arr, product_list_ptr -> resp_org.arr);
+
+strcpy(P_performing_organization.arr, product_list_ptr -> perf_org.arr);
+
+strcpy(P_location.arr, product_list_ptr -> location.arr);
+
+strcpy(P_natural_account.arr, product_list_ptr -> nat_acct.arr);
+
+strcpy(P_ferc_account.arr, product_list_ptr -> ferc_acct.arr);
+
+strcpy(P_intercompany.arr, "NULL");
+
+strcpy(P_rpt_class.arr, product_list_ptr -> rpt_class.arr);
+
+strcpy(P_future_use_2.arr, "NULL");
+
+strcpy(P_error_code.arr, "0");
+
+P_entity.len = strlen(product_list_ptr -> entity.arr);
+
+P_responsible_organization.len = strlen(product_list_ptr -> resp_org.arr);
+
+P_performing_organization.len = strlen(product_list_ptr -> perf_org.arr);
+
+P_location.len = strlen(product_list_ptr -> location.arr);
+
+P_natural_account.len = strlen(product_list_ptr -> nat_acct.arr);
+
+P_ferc_account.len = strlen(product_list_ptr -> ferc_acct.arr);
+
+P_intercompany.len = strlen(product_list_ptr -> intercomp.arr);
+
+P_rpt_class.len = strlen(product_list_ptr -> rpt_class.arr);
+
+P_future_use_2.len = strlen(product_list_ptr -> future2.arr);
+
+P_error_code.len = strlen(P_error_code.arr);
+
+varchar temp_prod[41];
+
+strncpy(temp_prod.arr, product_list_ptr -> product_type.arr, 40);
+
+temp_prod.arr[40] = '\0';
+
+#if 0 // BDI_I_002 if(i_run_type == DAILY) { /************* perform the COMMON VALIDATION ROUTINE for validation**************
+                ************ this is a packaged procedure residing on GL DB. **********/  / * BDI_I_002,
+                                                                                              eFMS interface discontinued EXEC SQL AT :gl_server_alias EXECUTE BEGIN apps.tvgb_fmscval_pkg.segs9_valid_date(:P_entity, :P_responsible_organization, :P_performing_organization, :P_location, :P_natural_account, :P_ferc_account, NULL, :P_rpt_class, NULL, TO_DATE(:P_effective_date, 'DD-MON-YYYY'), :P_code_combination_id:P_code_combination_id_ind, :P_error_code:P_error_code_ind, :P_error_message:P_error_message_ind);
+
+END;
